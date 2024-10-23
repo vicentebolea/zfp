@@ -79,8 +79,13 @@
   {
     bool status = false;
     hipPointerAttribute_t atts;
-    if (hipPointerGetAttributes(&atts, ptr) == hipSuccess)
+    if (hipPointerGetAttributes(&atts, ptr) == hipSuccess) {
+#if HIP_VERSION_MAJOR >= 6
+      status = (atts.type == hipMemoryTypeDevice);
+#else
       status = (atts.memoryType == hipMemoryTypeDevice);
+#endif
+    }
     // clear last error so other error checking does not pick it up
     (void)hipGetLastError();
     return status;

@@ -59,11 +59,8 @@ if(ZFP_WITH_CUDA)
 endif()
 
 if(ZFP_WITH_HIP)
-  set(HIP_HIPRT_LIBRARY "${HIP_PATH}/../lib/libamdhip64.so")
-  target_link_libraries(zfp PRIVATE  ${HIP_HIPRT_LIBRARY} stdc++)
-  # For debugging: if use HIP on NVIDIA systems
-  #find_package(CUDA)
-  #target_link_libraries(zfp PRIVATE ${CUDA_CUDART_LIBRARY} stdc++)
+  find_package(hip REQUIRED)
+  target_link_libraries(zfp PRIVATE hip::device)
 endif()
 
 target_compile_definitions(zfp

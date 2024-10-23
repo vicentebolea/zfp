@@ -6,14 +6,14 @@ if(MINGW)
   list(APPEND GTEST_ARGS "-DCMAKE_SH=CMAKE_SH-NOTFOUND")
 endif()
 
-# clone cmocka 1.1.0 into /build
-list(APPEND CMOCKA_ARGS "-DWITH_STATIC_LIB=ON;-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DUNIT_TESTING=OFF")
+# clone cmocka 1.1.7 into /build
+list(APPEND CMOCKA_ARGS "-DBUILD_SHARED_LIBS=OFF;-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DUNIT_TESTING=OFF")
 
 include(ExternalProject)
 ExternalProject_Add(
   cmocka_cloned
   GIT_REPOSITORY    https://gitlab.com/cmocka/cmocka.git
-  GIT_TAG           cmocka-1.1.0
+  GIT_TAG           cmocka-1.1.7
   SOURCE_DIR        "${CMAKE_BINARY_DIR}/cmocka-src"
   BINARY_DIR        "${CMAKE_BINARY_DIR}/cmocka-build"
   CMAKE_ARGS        "${CMOCKA_ARGS}"
