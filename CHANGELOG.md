@@ -5,6 +5,10 @@ Change Log
 
 ## Unreleased
 
+### Added
+
+- A new code example, `chunk`, shows how to perform (de)compression in chunks.
+
 ### Fixed
 
 - #241: Signed left shifts, integer overflow invoke undefined behavior.

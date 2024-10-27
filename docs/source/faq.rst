@@ -43,6 +43,7 @@ Questions answered in this FAQ:
   #. :ref:`How can I print array values? <q-printf>`
   #. :ref:`What is known about zfp compression errors? <q-err-dist>`
   #. :ref:`Why are zfp blocks 4 * 4 * 4 values? <q-block-size>`
+  #. :ref:`Can zfp (de)compress a single array in chunks? <q-chunked>`
 
 -------------------------------------------------------------------------------
 
@@ -530,8 +531,9 @@ when calling the high-level API function :c:func:`zfp_decompress`.
 
 With regards to the :c:type:`zfp_field` struct passed to
 :c:func:`zfp_compress` and :c:func:`zfp_decompress`, field dimensions must
-match between compression and decompression, however strides need not match
-(see :ref:`Q16 <q-strides>`).  Additionally, the scalar type,
+generally match between compression and decompression, though see
+:ref:`Q32 <q-chunked>` on chunked (de)compression.  Strides, however, need
+not match; see :ref:`Q16 <q-strides>`.  Additionally, the scalar type,
 :c:type:`zfp_type`, must match.  For example, float arrays currently have a
 compressed representation different from compressed double arrays due to
 differences in exponent width.  It is not possible to compress a double array
@@ -1418,3 +1420,80 @@ above factors.  Additionally, *n* = 4 has these benefits:
     a compressed 3D block occupies 128 bytes, or 1-2 hardware cache lines on
     contemporary computers.  Hence, a fair number of *compressed* blocks can
     also fit in hardware cache.
+
+-------------------------------------------------------------------------------
+
+.. _q-chunked:
+
+Q32: *Can zfp (de)compress a single array in chunks?*
+
+Yes, but there are restrictions.
+
+First, one can trivially partition any array into subarrays and (de)compress
+those independently using separate matching :c:func:`zfp_compress` and
+:c:func:`zfp_decompress` calls for each chunk.  Via subarray dimensions,
+strides, and pointers into the larger array, one can thus (de)compress the
+full array in pieces; see also :ref:`Q16 <q-strides>`.  This approach to
+chunked (de)compression incurs no constraints on compression mode, compression
+parameters, or array dimensions, though producer and consumer must agree on
+chunk size.  This type of chunking is employed by the |zfp| HDF5 filter
+`H5Z-ZFP <https://github.com/LLNL/H5Z-ZFP>`__ for I/O.
+
+A more restricted form of chunked (de)compression is to produce (compress) or
+consume (decompress) a single compressed stream for the whole array in chunks
+in a manner compatible with producing/consuming the entire stream all at once.
+Such chunked (de)compression divides the array into slabs along the slowest
+varying dimension (e.g., along *z* for 3D arrays), (de)compresses one slab at
+a time, and produces or consumes consecutive pieces of the sequential
+compressed stream.  This approach, too, is possible, though only when these
+requirements are met:
+
+* The size of each chunk (except the last) must be a whole multiple of four
+  along the slowest varying dimension; other dimensions are not subject to this
+  constraint.  For example, a 3D array with *nz* = 120 can be (de)compressed
+  in two or three equal-size chunks, but not four, since 120/2 = 60, and
+  120/3 = 40 are both divisible by four, but 120/4 = 30 is not.  Other viable
+  chunk sizes are 120/5 = 24, 120/6 = 20, 120/10 = 12, 120/15 = 8, and
+  120/30 = 4.  Note that other chunk sizes may be possible by relaxing the
+  constraint that they all be equal, as exploited by the
+  :ref:`chunk <ex-chunk>` code example, e.g., *nz* = 120 can be partitioned
+  into three chunks of size 32 and one of size 24.
+
+  The reason for this requirement is that |zfp| always pads each compressed
+  (sub)array to fill out whole blocks of size 4 in each dimension, and such
+  interior padding would not occur if the whole array were compressed as a
+  single chunk.
+
+* The length of the compressed substream for each chunk must be a multiple of
+  the :ref:`word size <word-size>`.  The reason for this is that each
+  :c:func:`zfp_compress` and :c:func:`zfp_decompress` call aligns the stream
+  on a word boundary upon completion.  One may avoid this requirement by using
+  the low-level API, which does not automatically perform such alignment.
+
+.. note::
+
+  When using the :ref:`high-level API <hl-api>`, the requirement on stream
+  alignment essentially limits chunked (de)compression to
+  :ref:`fixed-rate mode <mode-fixed-rate>`, as it is the only one that can
+  guarantee that the size of each compressed chunk is a multiple of the word
+  size.  To support other compression modes, use the
+  :ref:`low-level API <ll-api>`.
+
+Chunked (de)compression requires the user to set the :c:type:`zfp_field`
+dimensions to match the current chunk size and to set the
+:ref:`field pointer <zfp_field_set>` to the beginning of each uncompressed
+chunk before (de)compressing it.  The user may also have to position the
+compressed stream so that it points to the beginning of each compressed
+chunk.  See the :ref:`code example <ex-chunk>` for how one may implement
+chunked (de)compression.
+
+Note that the chunk size used for compression need not match the size used for
+decompression; e.g., the array may be compressed in a single sweep but
+decompressed in chunks, or vice versa.  Any combination of chunk sizes that
+respect the above constraints is valid.
+
+Chunked (de)compression makes it possible to perform, for example, windowed
+streaming computations on smaller subsets of the decompressed array at a time,
+i.e., without having to allocate enough space to hold the entire uncompressed
+array.  It also can be useful for overlapping or interleaving computation with
+(de)compression in a producer/consumer model.
