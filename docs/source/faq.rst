@@ -1275,18 +1275,24 @@ Q30: *What is known about zfp compression errors?*
 A: Significant effort has been spent on characterizing compression errors
 resulting from |zfp|, as detailed in the following publications:
 
-* P. Lindstrom,
-  "`Error Distributions of Lossy Floating-Point Compressors <https://www.osti.gov/servlets/purl/1526183>`__,"
-  JSM 2017 Proceedings.
-* J. Diffenderfer, A. Fox, J. Hittinger, G. Sanders, P. Lindstrom,
-  "`Error Analysis of ZFP Compression for Floating-Point Data <http://doi.org/10.1137/18M1168832>`__,"
-  SIAM Journal on Scientific Computing, 2019.
-* D. Hammerling, A. Baker, A. Pinard, P. Lindstrom,
-  "`A Collaborative Effort to Improve Lossy Compression Methods for Climate Data <http://doi.org/10.1109/DRBSD-549595.2019.00008>`__,"
-  5th International Workshop on Data Analysis and Reduction for Big Scientific Data, 2019.
-* A. Fox, J. Diffenderfer, J. Hittinger, G. Sanders, P. Lindstrom.
-  "`Stability Analysis of Inline ZFP Compression for Floating-Point Data in Iterative Methods <http://doi.org/10.1137/19M126904X>`__,"
-  SIAM Journal on Scientific Computing, 2020.
+#. P. Lindstrom,
+   "`Error Distributions of Lossy Floating-Point Compressors <https://www.osti.gov/servlets/purl/1526183>`__,"
+   JSM 2017 Proceedings.
+#. J. Diffenderfer, A. Fox, J. Hittinger, G. Sanders, P. Lindstrom,
+   "`Error Analysis of ZFP Compression for Floating-Point Data <https://doi.org/10.1137/18M1168832>`__,"
+   SIAM Journal on Scientific Computing, 2019.
+#. D. Hammerling, A. Baker, A. Pinard, P. Lindstrom,
+   "`A Collaborative Effort to Improve Lossy Compression Methods for Climate Data <https://doi.org/10.1109/DRBSD-549595.2019.00008>`__,"
+   5th International Workshop on Data Analysis and Reduction for Big Scientific Data, 2019.
+#. A. Fox, J. Diffenderfer, J. Hittinger, G. Sanders, P. Lindstrom.
+   "`Stability Analysis of Inline ZFP Compression for Floating-Point Data in Iterative Methods <https://doi.org/10.1137/19M126904X>`__,"
+   SIAM Journal on Scientific Computing, 2020.
+#. P. Lindstrom, J. Hittinger, J. Diffenderfer, A. Fox, D. Osei-Kuffuor, J. Banks.
+   "`ZFP: A Compressed Array Representation for Numerical Computations <https://doi.org/10.1177/10943420241284023>`__,"
+   International Journal of High-Performance Computing Applications, 2024.
+#. A. Fox, P. Lindstrom.
+   "`Statistical Analysis of ZFP: Understanding Bias <https://doi.org/10.48550/arXiv.2407.01826>`__,"
+   LLNL-JRNL-858256, Lawrence Livermore National Laboratory, 2024.
 
 In short, |zfp| compression errors are roughly normally distributed as a
 consequence of the central limit theorem, and can be bounded.  Because the
@@ -1297,9 +1303,8 @@ are far smaller than the absolute error tolerance specified in
 (see :ref:`Q22 <q-abserr>`).
 
 It is known that |zfp| errors can be slightly biased and correlated (see
-:numref:`zfp-rounding` and the third paper above).  Recent work has been
-done to combat such issues by supporting optional
-:ref:`rounding modes <rounding>`.
+:numref:`zfp-rounding` and papers #3 and #6 above).  Recent work has been done
+to combat such issues by supporting optional :ref:`rounding modes <rounding>`.
 
 .. _zfp-rounding:
 .. figure:: zfp-rounding.pdf
@@ -1314,11 +1319,20 @@ done to combat such issues by supporting optional
   block, resulting in errors not centered on zero.  With proper rounding
   (right), errors are both smaller and unbiased.
 
+It is also known how |zfp| compression errors behave as a function of grid
+spacing, *h*.  In particular, regardless of dimensionality, the compression
+error *decreases* with finer grids (smaller *h*) for a given rate (i.e.,
+fixed compressed storage size).  The |zfp| compression error decay is fast
+enough that the corresponding error in partial derivative estimates based on
+finite differences, which *increases* with smaller *h* when using conventional
+floating point, instead *decreases* with finer grids when using |zfp|.  See
+paper #5 for details.
+
 -------------------------------------------------------------------------------
 
 .. _q-block-size:
 
-Q31: *Why are zfp blocks 4 * 4 * 4 values?*
+Q31: *Why are zfp blocks 4* |times| *4* |times| *4 values?*
 
 One might ask why |zfp| uses *d*-dimensional blocks of |4powd| values and not
 some other, perhaps configurable block size, *n*\ :sup:`d`.  There are several
@@ -1326,17 +1340,17 @@ reasons why *n* = 4 was chosen:
 
 * For good performance, *n* should be an integer power of two so that indexing
   can be done efficiently using bit masks and shifts rather than more
-  expensive division and modulo operations.  As compression demands *n* > 1,
-  possible choices for *n* are 2, 4, 8, 16, ...
+  expensive division and modulo operations.  As nontrivial compression demands
+  *n* > 1, possible choices for *n* are 2, 4, 8, 16, ...
 
 * When *n* = 2, blocks are too small to exhibit significant redundancy; there
   simply is insufficient spatial correlation to exploit for sufficient data
   reduction.  Additionally, excessive software cache thrashing would likely
   occur for stencil computations, as even the smallest centered difference
-  stencil spans more than one block.  Finally, per-block overhead in storage
-  (e.g., shared exponent, bit offset) and computation (e.g., software cache
-  lookup) could be amortized over only few values.  Such small blocks were
-  immediately dismissed.
+  stencil would span more than one block.  Finally, per-block overhead in
+  storage (e.g., shared exponent, bit offset) and computation (e.g., software
+  cache lookup) could be amortized over only few values.  Such small blocks
+  were immediately dismissed.
 
 * When *n* = 8, blocks are too large, for several reasons:
 
@@ -1364,7 +1378,7 @@ reasons why *n* = 4 was chosen:
     have to be decoded even if only one value were requested.
 
   * "Skinny" arrays would have to be padded to multiples of *n* = 8, which
-    could introduce an unaccepable storage overhead.  For instance, a
+    could introduce an unacceptable storage overhead.  For instance, a
     30 |times| 20 |times| 3 array of 1,800 values would be padded to
     32 |times| 24 |times| 8 = 6,144 values, an increase of about 3.4 times.
     In contrast, when *n* = 4, only 32 |times| 20 |times| 4 = 2,560 values
