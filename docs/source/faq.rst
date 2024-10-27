@@ -260,6 +260,10 @@ A: Yes, but your mileage may vary.  Dense matrices, unlike smooth scalar
 fields, rarely exhibit correlation between adjacent rows and columns.  Thus,
 the quality or compression ratio may suffer.
 
+For examples of dense linear solvers that use |zfp| for matrix storage,
+see `STRUMPACK <https://portal.nersc.gov/project/sparse/strumpack/>`__
+and `ButterflyPACK <https://portal.nersc.gov/project/sparse/butterflypack/>`__.
+
 -------------------------------------------------------------------------------
 
 .. _q-structured:
