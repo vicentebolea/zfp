@@ -70,6 +70,13 @@ void* device_pointer(void* d_begin, void* h_begin, void* h_ptr, zfp_type type)
   }
 }
 
+// clear device memory
+template <typename T>
+void device_clear(T* d_pointer, size_t size)
+{
+  cudaMemset(d_pointer, 0, size);
+}
+
 // allocate device memory
 template <typename T>
 bool device_malloc(T** d_pointer, size_t size, const char* what = 0)
@@ -104,13 +111,6 @@ template <typename T>
 void device_free(T* d_pointer)
 {
   free_async(d_pointer);
-}
-
-// clear device memory
-template <typename T>
-void device_clear(T* d_pointer, size_t size)
-{
-  cudaMemset(d_pointer, 0, size);
 }
 
 // allocate device memory and copy from host

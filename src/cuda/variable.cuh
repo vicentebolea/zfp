@@ -327,7 +327,7 @@ namespace cg = cooperative_groups;
       size_t lcubtemp;
       void *d_cubtemp;
 
-      if (internal::setup_device_chunking(&chunk_size, &d_offsets, &lcubtemp, &d_cubtemp, processors)) {
+      if (internal::setup_device_compact(&chunk_size, &d_offsets, &lcubtemp, &d_cubtemp, processors)) {
         // in-place compact variable-length blocks stored as fixed-length records
         for (size_t i = 0; i < blocks; i += chunk_size) {
           int cur_blocks = chunk_size;

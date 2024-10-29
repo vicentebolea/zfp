@@ -144,7 +144,7 @@ decode3(
 
   // storage for maximum bit offset; needed to position stream
   unsigned long long int* d_offset;
-  if (!device_calloc(&d_offset, sizeof(*d_offset), "stream pointer");
+  if (!device_calloc(&d_offset, sizeof(*d_offset), "stream pointer"))
     return 0;
 
 #ifdef ZFP_WITH_HIP_PROFILE
