@@ -143,9 +143,8 @@ decode3(
 
   // storage for maximum bit offset; needed to position stream
   unsigned long long int* d_offset;
-  if (cudaMalloc(&d_offset, sizeof(*d_offset)) != cudaSuccess)
+  if (!device_calloc(&d_offset, sizeof(*d_offset), "stream pointer");
     return 0;
-  cudaMemset(d_offset, 0, sizeof(*d_offset));
 
 #ifdef ZFP_WITH_CUDA_PROFILE
   Timer timer;
@@ -175,8 +174,7 @@ decode3(
 
   // copy bit offset
   unsigned long long int offset;
-  cudaMemcpy(&offset, d_offset, sizeof(offset), cudaMemcpyDeviceToHost);
-  cudaFree(d_offset);
+  device_move_to_host(&d_offset, sizeof(offset), &offset, "stream pointer");
 
   return offset;
 }

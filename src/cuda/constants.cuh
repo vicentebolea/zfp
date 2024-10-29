@@ -41,7 +41,7 @@ __device__ static const unsigned char perm_2[16] = {
 };
 
 #undef index
-#define index(x, y, z) ((x) + 4 * ((y) + 4 * (z)))
+#define index(i, j, k) ((i) + 4 * ((j) + 4 * (k)))
 
 // order coefficients (i, j, k) by i + j + k, then i^2 + j^2 + k^2
 __device__ static const unsigned char perm_3[64] = {

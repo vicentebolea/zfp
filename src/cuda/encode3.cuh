@@ -130,7 +130,7 @@ encode3(
 
   // zero-initialize bit stream (for atomics)
   const size_t stream_bytes = calculate_device_memory(blocks, maxbits);
-  cudaMemset(d_stream, 0, stream_bytes);
+  device_clear(d_stream, stream_bytes);
 
 #ifdef ZFP_WITH_CUDA_PROFILE
   Timer timer;
@@ -155,7 +155,7 @@ encode3(
   timer.print_throughput<Scalar>("Encode", "encode3", dim3(size[0], size[1], size[2]));
 #endif
 
-  return (unsigned long long)stream_bytes * CHAR_BIT;
+  return (unsigned long long)(stream_bytes * CHAR_BIT);
 }
 
 } // namespace internal

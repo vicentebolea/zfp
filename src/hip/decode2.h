@@ -134,9 +134,8 @@ decode2(
 
   // storage for maximum bit offset; needed to position stream
   unsigned long long int* d_offset;
-  if (hipMalloc(&d_offset, sizeof(*d_offset)) != hipSuccess)
+  if (!device_calloc(&d_offset, sizeof(*d_offset), "stream pointer");
     return 0;
-  hipMemset(d_offset, 0, sizeof(*d_offset));
 
 #ifdef ZFP_WITH_HIP_PROFILE
   Timer timer;
@@ -166,8 +165,7 @@ decode2(
 
   // copy bit offset
   unsigned long long int offset;
-  hipMemcpy(&offset, d_offset, sizeof(offset), hipMemcpyDeviceToHost);
-  hipFree(d_offset);
+  device_move_to_host(&d_offset, sizeof(offset), &offset, "stream pointer");
 
   return offset;
 }

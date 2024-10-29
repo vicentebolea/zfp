@@ -78,7 +78,7 @@ bool device_malloc(T** d_pointer, size_t size, const char* what = 0)
 
 #ifdef ZFP_DEBUG
   if (!success) {
-    std::cerr << "zfp_cuda : failed to allocate device memory";
+    std::cerr << "zfp::cuda : failed to allocate device memory";
     if (what)
       std::cerr << " for " << what;
     std::cerr << std::endl;
@@ -88,21 +88,61 @@ bool device_malloc(T** d_pointer, size_t size, const char* what = 0)
   return success;
 }
 
+// allocate and zero-initialize device memory
+template <typename T>
+bool device_calloc(T** d_pointer, size_t size, const char* what = 0)
+{
+  bool success = device_malloc(d_pointer, size, what);
+  if (success)
+    device_clear(*d_pointer, size);
+
+  return success;
+}
+
+// free device memory
+template <typename T>
+void device_free(T* d_pointer)
+{
+  free_async(d_pointer);
+}
+
+// clear device memory
+template <typename T>
+void device_clear(T* d_pointer, size_t size)
+{
+  cudaMemset(d_pointer, 0, size);
+}
+
 // allocate device memory and copy from host
 template <typename T>
-bool device_copy_from_host(T** d_pointer, size_t size, void* h_pointer, const char* what = 0)
+bool device_copy_from_host(T** d_pointer, size_t size, const void* h_pointer, const char* what = 0)
 {
   if (!device_malloc(d_pointer, size, what))
     return false;
   if (cudaMemcpy(*d_pointer, h_pointer, size, cudaMemcpyHostToDevice) != cudaSuccess) {
 #ifdef ZFP_DEBUG
-    std::cerr << "zfp_cuda : failed to copy " << (what ? what : "data") << " from host to device" << std::endl;
+    std::cerr << "zfp::cuda : failed to copy " << (what ? what : "data") << " from host to device" << std::endl;
 #endif
-    cudaFree(*d_pointer);
+    device_free(*d_pointer);
     *d_pointer = NULL;
     return false;
   }
   return true;
+}
+
+// copy to host and then deallocate device memory
+template <typename T>
+bool device_move_to_host(T** d_pointer, size_t size, void* h_pointer, const char* what = 0)
+{
+  bool success = (cudaMemcpy(h_pointer, *d_pointer, size, cudaMemcpyDeviceToHost) == cudaSuccess);
+#ifdef ZFP_DEBUG
+  if (!success)
+    std::cerr << "zfp::cuda : failed to copy " << (what ? what : "data") << " from device to host" << std::endl;
+#endif
+  device_free(*d_pointer);
+  *d_pointer = NULL;
+
+  return success;
 }
 
 Word* setup_device_stream_compress(zfp_stream* stream)
@@ -153,23 +193,24 @@ Word* setup_device_index_decompress(zfp_stream* stream)
   return d_index;
 }
 
-bool setup_device_chunking(size_t* chunk_size, unsigned long long** d_offsets, size_t* lcubtemp, void** d_cubtemp, uint processors)
+bool setup_device_compact(size_t* chunk_size, unsigned long long** d_offsets, size_t* lcubtemp, void** d_cubtemp, uint processors)
 {
-  // TODO : Error handling for CUDA malloc and CUB?
+  const size_t threads_per_sm = 1024;
   // Assuming 1 thread = 1 ZFP block,
   // launching 1024 threads per SM should give a decent occupancy
-  *chunk_size = processors * 1024;
+  *chunk_size = processors * threads_per_sm;
   size_t size = (*chunk_size + 1) * sizeof(unsigned long long);
-  if (!device_malloc(d_offsets, size, "offsets"))
+  // allocate and zero-initialize offsets
+  if (!device_calloc(d_offsets, size, "offsets"))
     return false;
-  cudaMemset(*d_offsets, 0, size); // ensure offsets are zeroed
 
+  // TODO : error handling for CUB
   // Using CUB for the prefix sum. CUB needs a bit of temp memory too
   size_t tempsize;
   cub::DeviceScan::InclusiveSum(nullptr, tempsize, *d_offsets, *d_offsets, *chunk_size + 1);
   *lcubtemp = tempsize;
   if (!device_malloc(d_cubtemp, tempsize, "offsets")) {
-    cudaFree(*d_offsets);
+    device_free(d_offsets);
     *d_offsets = NULL;
     return false;
   }
@@ -233,7 +274,7 @@ void cleanup_device(void* begin, void* d_begin, size_t bytes = 0)
     // copy data from device to host and free device memory
     if (begin && bytes)
       cudaMemcpy(begin, d_begin, bytes, cudaMemcpyDeviceToHost);
-    free_async(d_begin);
+    device_free(d_begin);
   }
 }
 

@@ -107,6 +107,7 @@ decode1(
   uint granularity
 )
 {
+  // TODO: make block size exec parameter
   // block size is fixed to 32 in this version for hybrid index
   const int cuda_block_size = 128;
   const dim3 block_size = dim3(cuda_block_size, 1, 1);
@@ -122,9 +123,8 @@ decode1(
 
   // storage for maximum bit offset; needed to position stream
   unsigned long long int* d_offset;
-  if (hipMalloc(&d_offset, sizeof(*d_offset)) != hipSuccess)
+  if (!device_calloc(&d_offset, sizeof(*d_offset), "stream pointer"))
     return 0;
-  hipMemset(d_offset, 0, sizeof(*d_offset));
 
 #ifdef ZFP_WITH_HIP_PROFILE
   Timer timer;
@@ -154,8 +154,7 @@ decode1(
 
   // copy bit offset
   unsigned long long int offset;
-  hipMemcpy(&offset, d_offset, sizeof(offset), hipMemcpyDeviceToHost);
-  hipFree(d_offset);
+  device_move_to_host(&d_offset, sizeof(offset), &offset, "stream pointer");
 
   return offset;
 }

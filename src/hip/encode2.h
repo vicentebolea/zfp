@@ -118,7 +118,7 @@ encode2(
 
   // zero-initialize bit stream (for atomics)
   const size_t stream_bytes = calculate_device_memory(blocks, maxbits);
-  hipMemset(d_stream, 0, stream_bytes);
+  device_clear(d_stream, stream_bytes);
 
 #ifdef ZFP_WITH_HIP_PROFILE
   Timer timer;
@@ -143,7 +143,7 @@ encode2(
   timer.print_throughput<Scalar>("Encode", "encode2", dim3(size[0], size[1]));
 #endif
 
-  return (unsigned long long)stream_bytes * CHAR_BIT;
+  return (unsigned long long)(stream_bytes * CHAR_BIT);
 }
 
 } // namespace internal
