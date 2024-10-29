@@ -5,12 +5,13 @@
 #  ZFP_LIBRARIES    - libraries to link against
 #  ZFP_WITH_OPENMP  - indicates if the zfp library has been built with OpenMP support
 #  ZFP_WITH_CUDA    - indicates if the zfp library has been built with CUDA support
+#  ZFP_WITH_HIP     - indicates if the zfp library has been built with HIP support
 #  ZFP_CFP_ENABLED  - indicated if the cfp library has been built
 #
 # And the following imported targets:
 #   zfp::zfp
 #
-# If cfp is enabled the following variabled are also defined
+# If cfp is enabled the following variables are also defined
 #  CFP_INCLUDE_DIRS - include directories for cfp
 #  CFP_LIBRARIES    - libraries to link against (cfp only)
 #
@@ -42,3 +43,4 @@ if(ZFP_WITH_OPENMP)
 endif()
 
 set(ZFP_WITH_CUDA @ZFP_WITH_CUDA@)
+set(ZFP_WITH_HIP @ZFP_WITH_HIP@)
