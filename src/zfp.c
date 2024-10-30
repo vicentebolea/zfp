@@ -11,7 +11,7 @@
 
 const uint zfp_codec_version = ZFP_CODEC;
 const uint zfp_library_version = ZFP_VERSION;
-const char* const zfp_version_string = "zfp version " ZFP_VERSION_STRING " (August 1, 2022)";
+const char* const zfp_version_string = "zfp version " ZFP_VERSION_STRING " (December 15, 2023)";
 
 /* private functions ------------------------------------------------------- */
 
@@ -303,9 +303,9 @@ zfp_maximum_block_size_bits(const zfp_stream* zfp, const zfp_field* field)
 /* public functions: fields ------------------------------------------------ */
 
 zfp_field*
-zfp_field_alloc()
+zfp_field_alloc(void)
 {
-  zfp_field* field = (zfp_field*)malloc(sizeof(zfp_field));
+  zfp_field* field = malloc(sizeof(zfp_field));
   if (field) {
     field->type = zfp_type_none;
     field->nx = field->ny = field->nz = field->nw = 0;
@@ -387,7 +387,7 @@ zfp_field_begin(const zfp_field* field)
   if (field->data) {
     ptrdiff_t min;
     field_index_span(field, &min, NULL);
-    return (void*)((uchar*)field->data + min * (ptrdiff_t)zfp_type_size(field->type));
+    return (uchar*)field->data + min * (ptrdiff_t)zfp_type_size(field->type);
   }
   else
     return NULL;
@@ -418,13 +418,13 @@ zfp_field_size(const zfp_field* field, size_t* size)
     switch (zfp_field_dimensionality(field)) {
       case 4:
         size[3] = field->nw;
-        /* FALLTHROUGH */
+        fallthrough_
       case 3:
         size[2] = field->nz;
-        /* FALLTHROUGH */
+        fallthrough_
       case 2:
         size[1] = field->ny;
-        /* FALLTHROUGH */
+        fallthrough_
       case 1:
         size[0] = field->nx;
         break;
@@ -472,13 +472,13 @@ zfp_field_stride(const zfp_field* field, ptrdiff_t* stride)
     switch (zfp_field_dimensionality(field)) {
       case 4:
         stride[3] = field->sw ? field->sw : (ptrdiff_t)(field->nx * field->ny * field->nz);
-        /* FALLTHROUGH */
+        fallthrough_
       case 3:
         stride[2] = field->sz ? field->sz : (ptrdiff_t)(field->nx * field->ny);
-        /* FALLTHROUGH */
+        fallthrough_
       case 2:
         stride[1] = field->sy ? field->sy : (ptrdiff_t)field->nx;
-        /* FALLTHROUGH */
+        fallthrough_
       case 1:
         stride[0] = field->sx ? field->sx : 1;
         break;
@@ -674,7 +674,7 @@ zfp_field_set_metadata(zfp_field* field, uint64 meta)
 /* public functions: compression mode and parameter settings --------------- */
 
 zfp_config
-zfp_config_none()
+zfp_config_none(void)
 {
   zfp_config config;
   config.mode = zfp_mode_null;
@@ -716,7 +716,7 @@ zfp_config_accuracy(
 }
 
 zfp_config
-zfp_config_reversible()
+zfp_config_reversible(void)
 {
   zfp_config config;
   config.mode = zfp_mode_reversible;
@@ -745,7 +745,7 @@ zfp_config_expert(
 zfp_stream*
 zfp_stream_open(bitstream* stream)
 {
-  zfp_stream* zfp = (zfp_stream*)malloc(sizeof(zfp_stream));
+  zfp_stream* zfp = malloc(sizeof(zfp_stream));
   if (zfp) {
     zfp->stream = stream;
     zfp->minbits = ZFP_MIN_BITS;
