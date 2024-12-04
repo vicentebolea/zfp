@@ -72,7 +72,7 @@ encode3_kernel(
   if (block_idx >= blocks)
     return;
 
-  // logical position in 2d array
+  // logical position in 3d array
   size_t pos = block_idx;
   const ptrdiff_t x = (pos % bx) * 4; pos /= bx;
   const ptrdiff_t y = (pos % by) * 4; pos /= by;

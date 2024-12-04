@@ -18,10 +18,10 @@ void
 copy_length_kernel(
   unsigned long long* d_offset, // block offsets; first is base of prefix sum
   const ushort* d_length,       // block lengths in bits
-  size_t blocks_per_chunk       // number of blocks in chunk to process
+  uint blocks_per_chunk         // number of blocks in chunk to process
 )
 {
-  size_t block = threadIdx.x + (size_t)blockIdx.x * blockDim.x;
+  uint block = threadIdx.x + blockIdx.x * blockDim.x;
   if (block < blocks_per_chunk)
     d_offset[block + 1] = d_length[block];
 }
@@ -31,7 +31,7 @@ void
 copy_length_launch(
   unsigned long long* d_offset, // block offsets; first is base of prefix sum
   const ushort* d_length,       // block lengths in bits
-  size_t blocks_per_chunk       // number of blocks in chunk to process
+  uint blocks_per_chunk         // number of blocks in chunk to process
 )
 {
   dim3 blocks((int)count_up(blocks_per_chunk, 1024), 1, 1);
@@ -206,23 +206,32 @@ compact_stream_kernel(
   // block.  The caller also allocates shared memory for sm_in and sm_out.
 
   cg::grid_group grid = cg::this_grid();
-  extern __shared__ uint32 sm_in[];                         // sm_in[num_tiles * words_per_slot]
-  uint32* sm_out = sm_in + num_tiles * words_per_slot;      // sm_out[num_tiles * words_per_slot + 2]
+  // sm_in[num_tiles * words_per_slot]
+  extern __shared__ uint32 sm_in[];
+  // sm_out[num_tiles * words_per_slot + 2]
+  uint32* sm_out = sm_in + num_tiles * words_per_slot;
+  // thread within thread block
+  const uint tid = threadIdx.x + threadIdx.y * tile_size;
+  // number of blocks per group
+  const uint blocks_per_group = gridDim.x * num_tiles;
+  // first block in this subchunk
+  const uint first_subchunk_block = blockIdx.x * num_tiles;
 
-  const uint tid = threadIdx.x + threadIdx.y * tile_size;   // thread within thread block
-  const uint blocks_per_group = gridDim.x * num_tiles;      // number of blocks per group
-  const uint first_subchunk_block = blockIdx.x * num_tiles; // first block in this subchunk
-
-  // zero-initialize compacted shared-memory buffer (also done in process())
+  // zero-initialize compacted buffer (also done in store_subchunk())
   for (uint i = tid; i < num_tiles * words_per_slot + 2; i += num_tiles * tile_size)
     sm_out[i] = 0;
 
   // compact chunk one group at a time
   for (uint i = 0; i < blocks_per_chunk; i += blocks_per_group) {
-    const uint base_block = first_subchunk_block + i; // first block in this subchunk
-    const uint block = base_block + threadIdx.y; // block assigned to this thread
+    // first block in this subchunk
+    const uint base_block = first_subchunk_block + i;
+    // block assigned to this thread
+    const uint block = base_block + threadIdx.y;
+    // is this thread block assigned any compressed blocks?
     const bool active_thread_block = (base_block < blocks_per_chunk);
-    const bool valid_block = (block < blocks_per_chunk); // is thread assigned to valid block?
+    // is this thread assigned to valid block?
+    const bool valid_block = (block < blocks_per_chunk);
+    // destination offset to beginning of subchunk in compacted stream
     const unsigned long long base_offset = active_thread_block ? d_offset[base_block] : 0;
 
     unsigned long long offset_out = 0;
@@ -277,29 +286,28 @@ compact_stream_launch(
   uint processors               // number of device multiprocessors
 )
 {
-  // Increase the number of threads per zfp block ("tile") as bits_per_slot increases
-  // Compromise between coalescing, inactive threads and shared memory size <= 48KB
-  // Total shared memory used = (2 * num_tiles * words_per_slot + 2) x 32-bit dynamic shared memory
-  // and num_tiles x 32-bit static shared memory.
-  // The extra 2 elements of dynamic shared memory are needed to handle unaligned output data
-  // and potential zero-padding to the next multiple of 64 bits.
-  // Block sizes set so that the shared memory stays < 48KB.
+  // Assign number of threads ("tile_size") per zfp block in proportion to
+  // bits_per_slot.  Compromise between coalescing, keeping threads active,
+  // and limiting shared memory usage.  The total dynamic shared memory used
+  // equals (2 * num_tiles * words_per_slot + 2) 32-bit words.  The extra
+  // two words of shared memory are needed to handle output data that is not
+  // aligned on 32-bit words.  The number of zfp blocks per thread block
+  // ("num_tiles") is set to ensure that shared memory is at most 48 KB.
 
   const uint words_per_slot = count_up(bits_per_slot, 32);
   const size_t shmem = (2 * num_tiles * words_per_slot + 2) * sizeof(uint32);
 
   // compute number of blocks to process concurrently
-  int max_blocks = 0;
+  int thread_blocks = 0;
   cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-    &max_blocks,
+    &thread_blocks,
     compact_stream_kernel<tile_size, num_tiles>,
     tile_size * num_tiles,
     shmem
   );
-  max_blocks *= processors;
-  max_blocks = min(max_blocks, blocks_per_chunk);
+  thread_blocks *= processors;
+  thread_blocks = min(thread_blocks, (int)count_up(blocks_per_chunk, num_tiles));
 
-  const dim3 threads(tile_size, num_tiles, 1);
   void* kernel_args[] = {
     (void *)&d_stream,
     (void *)&d_offset,
@@ -311,8 +319,8 @@ compact_stream_launch(
 
   return cudaLaunchCooperativeKernel(
     (void *)compact_stream_kernel<tile_size, num_tiles>,
-    dim3(max_blocks, 1, 1),
-    threads,
+    dim3(thread_blocks, 1, 1),
+    dim3(tile_size, num_tiles, 1),
     kernel_args,
     shmem,
     0
@@ -381,13 +389,11 @@ compact_stream(
   bool success = true;
   unsigned long long* d_offset;
   size_t chunk_size;
-  size_t lcubtemp;
-  void* d_cubtemp;
+  size_t cubtmp_size;
+  void* d_cubtmp;
 
-  if (!setup_device_compact(&chunk_size, &d_offset, &lcubtemp, &d_cubtemp, processors))
+  if (!setup_device_compact(&chunk_size, &d_offset, &cubtmp_size, &d_cubtmp, processors))
     return 0;
-
-printf("chunk_size=%zu\n", chunk_size);
 
   // perform compaction one chunk of blocks at a time
   for (size_t block = 0; block < blocks && success; block += chunk_size) {
@@ -398,7 +404,7 @@ printf("chunk_size=%zu\n", chunk_size);
     copy_length_launch(d_offset, d_length + block, blocks_per_chunk);
 
     // compute prefix sum to turn block lengths into offsets
-    cub::DeviceScan::InclusiveSum(d_cubtemp, lcubtemp, d_offset, d_offset, blocks_per_chunk + 1);
+    cub::DeviceScan::InclusiveSum(d_cubtmp, cubtmp_size, d_offset, d_offset, blocks_per_chunk + 1);
 
     // compact the stream in place
     if (!compact_stream_chunk((uint32*)d_stream, d_offset, block, blocks_per_chunk, bits_per_slot, processors))
@@ -413,8 +419,8 @@ printf("chunk_size=%zu\n", chunk_size);
   }
 
   // free temporary buffers
-  cleanup_device(NULL, d_offset);
-  cleanup_device(NULL, d_cubtemp);
+  cleanup_device(d_offset);
+  cleanup_device(d_cubtmp);
 
   return bits_written;
 }

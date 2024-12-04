@@ -119,12 +119,12 @@ zfp_internal_cuda_compress(zfp_stream* stream, const zfp_field* field)
   if (d_index) {
     const size_t size = zfp_field_blocks(field) * sizeof(ushort);
     // TODO: assumes index stores block sizes
-    zfp::cuda::internal::cleanup_device(stream->index ? stream->index->data : NULL, d_index, size);
+    zfp::cuda::internal::cleanup_device(d_index, stream->index ? stream->index->data : NULL, size);
   }
 
   // copy stream from device to host if needed and free temporary buffers
-  zfp::cuda::internal::cleanup_device(stream->stream->begin, d_stream, stream_bytes);
-  zfp::cuda::internal::cleanup_device(zfp_field_begin(field), d_begin);
+  zfp::cuda::internal::cleanup_device(d_stream, stream->stream->begin, stream_bytes);
+  zfp::cuda::internal::cleanup_device(d_begin, zfp_field_begin(field));
 
   // update bit stream to point just past produced data
   if (bits_written)
@@ -220,10 +220,10 @@ zfp_internal_cuda_decompress(zfp_stream* stream, zfp_field* field)
 
   // copy field from device to host if needed and free temporary buffers
   size_t field_bytes = zfp_field_size_bytes(field);
-  zfp::cuda::internal::cleanup_device(zfp_field_begin(field), d_begin, field_bytes);
-  zfp::cuda::internal::cleanup_device(stream->stream->begin, d_stream);
+  zfp::cuda::internal::cleanup_device(d_begin, zfp_field_begin(field), field_bytes);
+  zfp::cuda::internal::cleanup_device(d_stream, stream->stream->begin);
   if (d_index)
-    zfp::cuda::internal::cleanup_device(stream->index->data, d_index);
+    zfp::cuda::internal::cleanup_device(d_index, stream->index->data);
 
   // update bit stream to point just past consumed data
   if (bits_read)

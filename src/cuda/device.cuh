@@ -193,25 +193,22 @@ Word* setup_device_index_decompress(zfp_stream* stream)
   return d_index;
 }
 
-bool setup_device_compact(size_t* chunk_size, unsigned long long** d_offsets, size_t* lcubtemp, void** d_cubtemp, uint processors)
+bool setup_device_compact(size_t* chunk_size, unsigned long long** d_offset, size_t* cubtmp_size, void** d_cubtmp, uint processors)
 {
+  // use 1K threads per SM for high occupancy (assumes one thread per zfp block)
   const size_t threads_per_sm = 1024;
-  // Assuming 1 thread = 1 ZFP block,
-  // launching 1024 threads per SM should give a decent occupancy
   *chunk_size = processors * threads_per_sm;
-  size_t size = (*chunk_size + 1) * sizeof(unsigned long long);
+
   // allocate and zero-initialize offsets
-  if (!device_calloc(d_offsets, size, "offsets"))
+  const size_t size = (*chunk_size + 1) * sizeof(unsigned long long);
+  if (!device_calloc(d_offset, size, "offsets"))
     return false;
 
-  // TODO : error handling for CUB
-  // Using CUB for the prefix sum. CUB needs a bit of temp memory too
-  size_t tempsize;
-  cub::DeviceScan::InclusiveSum(nullptr, tempsize, *d_offsets, *d_offsets, *chunk_size + 1);
-  *lcubtemp = tempsize;
-  if (!device_malloc(d_cubtemp, tempsize, "offsets")) {
-    device_free(d_offsets);
-    *d_offsets = NULL;
+  // allocate temporary memory for CUB prefix sum
+  if (cub::DeviceScan::InclusiveSum(nullptr, *cubtmp_size, *d_offset, *d_offset, *chunk_size + 1) != cudaSuccess ||
+      !device_malloc(d_cubtmp, *cubtmp_size, "offsets")) {
+    device_free(d_offset);
+    *d_offset = NULL;
     return false;
   }
 
@@ -267,8 +264,7 @@ void* setup_device_field_decompress(const zfp_field* field, void*& d_begin)
 }
 
 // copy from device to host (if needed) and deallocate device memory
-// TODO: d_begin should be first argument, with begin = NULL as default
-void cleanup_device(void* begin, void* d_begin, size_t bytes = 0)
+void cleanup_device(void* d_begin, void* begin = 0, size_t bytes = 0)
 {
   if (d_begin != begin) {
     // copy data from device to host and free device memory
