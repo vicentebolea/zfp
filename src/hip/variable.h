@@ -2,6 +2,9 @@
 #ifndef ZFP_HIP_VARIABLE_H
 #define ZFP_HIP_VARIABLE_H
 
+// implementation of variable-rate compression based on compacting in-place
+// a stream of variable-length blocks initially stored in fixed-length slots
+
 #include "shared.h"
 
 namespace zfp {
@@ -10,353 +13,418 @@ namespace internal {
 
 namespace cg = cooperative_groups;
 
-    // *******************************************************************************
+// kernel for initializing prefix sum over zfp block lengths
+__global__
+void
+copy_length_kernel(
+  unsigned long long* d_offset, // block offsets; first is base of prefix sum
+  const ushort* d_length,       // block lengths in bits
+  uint blocks_per_chunk         // number of blocks in chunk to process
+)
+{
+  uint block = threadIdx.x + blockIdx.x * blockDim.x;
+  if (block < blocks_per_chunk)
+    d_offset[block + 1] = d_length[block];
+}
 
-    // Copy a chunk of 16-bit stream lengths into the 64-bit offsets array
-    // to compute prefix sums. The first value in offsets is the "base" of the prefix sum
-    __global__ void copy_length(ushort *length,
-                                unsigned long long *offsets,
-                                unsigned long long first_stream,
-                                int nstreams_chunk)
-    {
-        int index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= nstreams_chunk)
-            return;
-        offsets[index + 1] = length[first_stream + index];
+// initialize prefix sum by copying a chunk of 16-bit lengths to 64-bit offsets
+void
+copy_length_launch(
+  unsigned long long* d_offset, // block offsets; first is base of prefix sum
+  const ushort* d_length,       // block lengths in bits
+  uint blocks_per_chunk         // number of blocks in chunk to process
+)
+{
+  dim3 blocks((int)count_up(blocks_per_chunk, 1024), 1, 1);
+  copy_length_kernel<<<blocks, 1024>>>(d_offset, d_length, blocks_per_chunk);
+}
+
+// load a single unaligned block to a 32-bit aligned slot in shared memory
+template <uint threads>
+__device__
+inline void
+load_block(
+  uint32* sm_stream,         // shared-memory buffer of 32-bit aligned slots
+  uint words_per_slot,       // slot size in number of 32-bit words
+  const uint32* d_stream,    // beginning of uncompacted input stream
+  unsigned long long offset, // block offset in bits
+  uint length                // block length in bits
+)
+{
+  // block start within first 32-bit word
+  const uint shift = (uint)offset & 31u;
+
+  // advance stream to beginning 32-bit word of block
+  d_stream += offset / 32;
+
+  // advance shared-memory pointer to where block is to be stored
+  sm_stream += threadIdx.y * words_per_slot;
+
+  // copy compressed data for one block one 32-bit word at a time
+  for (uint i = threadIdx.x; i * 32 < length; i += threads) {
+    // fetch two consecutive words and funnel shift them to one output word
+    uint32 lo = d_stream[i];
+    uint32 hi = 0;
+    if ((i + 1) * 32 < shift + length)
+      hi = d_stream[i + 1];
+    sm_stream[i] = __funnelshift_r(lo, hi, shift);
+  }
+}
+
+// copy a single block from its 32-bit aligned slot to its compacted location
+template <uint threads>
+__device__
+inline void
+copy_block(
+  uint32* sm_out,                 // shared-memory pointer to compacted chunk
+  unsigned long long base_offset, // global offset to first block in subchunk
+  unsigned long long offset,      // global offset to this block in bits
+  uint length,                    // block length in bits
+  const uint32* sm_in,            // shared-memory pointer to uncompacted data
+  uint words_per_slot             // slot size in number of 32-bit words
+)
+{
+  // in-word offset to first block in chunk
+  const uint base_shift = (uint)base_offset & 31u;
+
+  // block start within first 32-bit word
+  const uint shift = (uint)offset & 31u;
+
+  // advance shared-memory pointer to block source data
+  sm_in += threadIdx.y * words_per_slot;
+
+  // advance pointer to block destination data
+  sm_out += (offset - base_offset + base_shift) / 32;
+
+  for (uint i = threadIdx.x; i * 32 < shift + length; i += threads) {
+    // fetch two consecutive words and funnel shift them to one output word
+    uint32 lo = i > 0 ? sm_in[i - 1] : 0;
+    uint32 hi = sm_in[i];
+    uint32 word = __funnelshift_l(lo, hi, shift);
+
+    // mask out bits from next block
+    if ((i + 1) * 32 > shift + length)
+      word &= ~(0xffffffffu << ((shift + length) & 31u));
+
+    // store (partial) word in a thread-safe manner
+    atomicAdd(sm_out + i, word);
+  }
+}
+
+// atomically write masked bits of word to *ptr
+template <typename T>
+__device__
+inline void
+atomic_deposit(T* ptr, T word, T mask)
+{
+  if (~mask) {
+    // deposit partial word using atomicCAS
+    T expected;
+    T old = *ptr;
+    do {
+      expected = old;
+      T value = (word & mask) + (expected & ~mask);
+      old = atomicCAS(ptr, expected, value);
+    } while (old != expected);
+  }
+  else
+    *ptr = word;
+}
+
+// copy one subchunk of num_tiles blocks from shared to global memory
+template <int tile_size, int num_tiles>
+__device__
+inline void
+store_subchunk(
+  uint32* d_stream,          // output pointer
+  unsigned long long offset, // bit offset to first block in subchunk
+  uint length,               // subchunk length in bits
+  uint32* sm_src,            // compacted compressed data in shared memory
+  uint tid                   // global thread index inside the thread block
+)
+{
+  // Copy compacted subchunk from shared memory to its final location in global
+  // memory using coalesced writes.  Use atomic only for the first and last
+  // word of the subchunk.
+
+  const uint begin = offset & 31u;
+  const uint end = begin + length;
+
+  // advance output pointer to first word of subchunk
+  d_stream += offset / 32;
+
+  // use all threads to copy compacted subchunk to global memory
+  for (uint i = tid; i * 32 < end; i += num_tiles * tile_size) {
+    // fetch word and zero out for next subchunk
+    uint32 word = sm_src[i];
+    sm_src[i] = 0;
+    // mask out the beginning and end of subchunk if unaligned
+    uint32 mask = 0xffffffffu;
+    if (i == 0)
+      mask &= 0xffffffffu << begin;
+    if ((i + 1) * 32 > end)
+      mask &= ~(0xffffffffu << (end & 31u));
+    // write (possibly partial) word to global memory
+    atomic_deposit(d_stream + i, word, mask);
+  }
+}
+
+// cooperative kernel for stream compaction of one chunk of blocks
+template <int tile_size, int num_tiles>
+__launch_bounds__(tile_size * num_tiles)
+__global__
+void
+compact_stream_kernel(
+  uint32* __restrict__ d_stream,             // compressed bit stream
+  unsigned long long* __restrict__ d_offset, // destination bit offsets
+  size_t first_block,    // global index of first block in chunk
+  uint blocks_per_chunk, // number of blocks per chunk
+  uint bits_per_slot,    // number of bits per fixed-size slot holding a block
+  uint words_per_slot    // number of 32-bit words per slot
+)
+{
+  // In-place stream compaction of variable-length blocks initially stored in
+  // d_stream as fixed-length slots of size bits_per_slot.  Compaction is done
+  // in parallel in chunks of blocks_per_chunk blocks.  Each chunk is broken
+  // into subchunks of num_tiles (one of {8, 32, 128, 512}) blocks each.
+  // Compaction first loads a subchunk of blocks to 32-bit aligned slots in
+  // shared memory, sm_in, then compacts that subchunk by concatenating the
+  // blocks to sm_out, and then copies the compacted data back to global
+  // memory in d_stream.  This repeats for all subchunks of the chunk.  The
+  // destination offset of each block in the chunk has already been computed
+  // as a prefix sum over block lengths and stored in d_offset, which holds
+  // blocks_per_chunk + 1 bit offsets.  At the end of the kernel, d_offset[0]
+  // is set to point to the beginning of the next chunk.
+  //
+  // This parallel compaction is executed by num_tiles * tile_size = 512
+  // threads, with one such thread block processing one subchunk at a time.
+  // Thread indices are:
+  //
+  //   threadIdx.x = thread among tile_size threads working on the same block
+  //   threadIdx.y = block index within subchunk
+  //
+  // The caller must launch dim3(tile_size, num_tiles, 1) threads per thread
+  // block.  The caller also allocates shared memory for sm_in and sm_out.
+
+  cg::grid_group grid = cg::this_grid();
+  // sm_in[num_tiles * words_per_slot]
+  extern __shared__ uint32 sm_in[];
+  // sm_out[num_tiles * words_per_slot + 2]
+  uint32* sm_out = sm_in + num_tiles * words_per_slot;
+  // thread within thread block
+  const uint tid = threadIdx.x + threadIdx.y * tile_size;
+  // number of blocks per group
+  const uint blocks_per_group = gridDim.x * num_tiles;
+  // first block in this subchunk
+  const uint first_subchunk_block = blockIdx.x * num_tiles;
+
+  // zero-initialize compacted buffer (also done in store_subchunk())
+  for (uint i = tid; i < num_tiles * words_per_slot + 2; i += num_tiles * tile_size)
+    sm_out[i] = 0;
+
+  // compact chunk one group at a time
+  for (uint i = 0; i < blocks_per_chunk; i += blocks_per_group) {
+    // first block in this subchunk
+    const uint base_block = first_subchunk_block + i;
+    // block assigned to this thread
+    const uint block = base_block + threadIdx.y;
+    // is this thread block assigned any compressed blocks?
+    const bool active_thread_block = (base_block < blocks_per_chunk);
+    // is this thread assigned to valid block?
+    const bool valid_block = (block < blocks_per_chunk);
+    // destination offset to beginning of subchunk in compacted stream
+    const unsigned long long base_offset = active_thread_block ? d_offset[base_block] : 0;
+
+    unsigned long long offset_out = 0;
+    uint length = 0;
+
+    if (valid_block) {
+      // source offset within uncompacted stream
+      unsigned long long offset_in = (first_block + block) * bits_per_slot;
+      // destination offset within compacted stream
+      offset_out = d_offset[block];
+      // bit length of this block
+      length = (uint)(d_offset[block + 1] - offset_out);
+      // buffer block in fixed-size slot in shared memory
+      load_block<tile_size>(sm_in, words_per_slot, d_stream, offset_in, length);
+      // compact subchunk by copying block to target location in shared memory
+      __syncthreads();
+      copy_block<tile_size>(sm_out, base_offset, offset_out, length, sm_in, words_per_slot);
     }
 
-    void copy_length_launch(ushort *bitlengths,
-                            unsigned long long *chunk_offsets,
-                            unsigned long long first,
-                            int nstreams_chunk)
-    {
-        dim3 blocks((nstreams_chunk - 1) / 1024 + 1, 1, 1);
-        hipLaunchKernelGGL(copy_length, blocks, 1024, 0, 0, bitlengths, chunk_offsets, first, nstreams_chunk);
+    // synchronize across group if there is overlap between input and output
+    const uint last_block = min(i + blocks_per_group, blocks_per_chunk);
+    const size_t output_end = d_offset[last_block] / 32;
+    const size_t input_begin = (first_block + i) * bits_per_slot / 32;
+    if (output_end < input_begin)
+      __syncthreads();
+    else
+      grid.sync();
+
+    // copy compacted subchunk from shared memory to global memory
+    if (active_thread_block) {
+      unsigned long long last_offset = d_offset[min(base_block + num_tiles, blocks_per_chunk)];
+      uint subchunk_length = (uint)(last_offset - base_offset);
+      // store compacted subchunk to global memory
+      store_subchunk<tile_size, num_tiles>(d_stream, base_offset, subchunk_length, sm_out, tid);
     }
+  }
 
-    // *******************************************************************************
+  // update the base of the offset array for the next chunk's prefix sum
+  if (blockIdx.x == 0 && tid == 0)
+    d_offset[0] = d_offset[blocks_per_chunk];
+}
 
-    // Each tile loads the compressed but uncompacted data to shared memory.
-    // Input alignment can be anything (1-bit) as maxbits is not always a multiple of 8,
-    // so the data is aligned on the fly (first bit of the bitstream on bit 0 in shared memory)
-    template <uint tile_size>
-    __device__ inline void load_to_shared(const uint *streams,                   // Input data
-                                          uint *sm,                              // Shared memory
-                                          const unsigned long long &offset_bits, // Offset in bits for the stream
-                                          const uint &length_bits,               // Length in bits for this stream
-                                          const int &maxpad32)                   // Next multiple of 32 of maxbits
-    {
-        uint misaligned = offset_bits & 31;
-        unsigned long long offset_32 = offset_bits / 32;
-        for (int i = threadIdx.x; i * 32 < length_bits; i += tile_size)
-        {
-            // Align even if already aligned
-            uint low = streams[offset_32 + i];
-            uint high = 0;
-            if ((i + 1) * 32 < misaligned + length_bits)
-                high = streams[offset_32 + i + 1];
-            sm[threadIdx.y * maxpad32 + i] = __funnelshift_r(low, high, misaligned);
-        }
-    }
+// launch stream compaction kernel for one chunk
+template <int tile_size, int num_tiles>
+bool
+compact_stream_launch(
+  uint32* d_stream,             // compressed bit stream
+  unsigned long long* d_offset, // global bit offsets to blocks in chunk
+  size_t first_block,           // index of first block in chunk
+  uint blocks_per_chunk,        // number of blocks per chunk
+  uint bits_per_slot,           // fixed-size slot size in bits
+  uint processors               // number of device multiprocessors
+)
+{
+  // Assign number of threads ("tile_size") per zfp block in proportion to
+  // bits_per_slot.  Compromise between coalescing, keeping threads active,
+  // and limiting shared memory usage.  The total dynamic shared memory used
+  // equals (2 * num_tiles * words_per_slot + 2) 32-bit words.  The extra
+  // two words of shared memory are needed to handle output data that is not
+  // aligned on 32-bit words.  The number of zfp blocks per thread block
+  // ("num_tiles") is set to ensure that shared memory is at most 48 KB.
 
-    // Read the input bitstreams from shared memory, align them relative to the
-    // final output alignment, compact all the aligned bitstreams in sm_out,
-    // then write all the data (coalesced) to global memory, using atomics only
-    // for the first and last elements
-    template <int tile_size, int num_tiles>
-    __device__ inline void process(bool valid_stream,
-                                   unsigned long long &offset0,     // Offset in bits of the first bitstream of the block
-                                   const unsigned long long offset, // Offset in bits for this stream
-                                   const int &length_bits,          // length of this stream
-                                   const int &add_padding,          // padding at the end of the block, in bits
-                                   const int &tid,                  // global thread index inside the thread block
-                                   uint *sm_in,                     // shared memory containing the compressed input data
-                                   uint *sm_out,                    // shared memory to stage the compacted compressed data
-                                   uint maxpad32,                   // Leading dimension of the shared memory (padded maxbits)
-                                   uint *sm_length,                 // shared memory to compute a prefix-sum inside the block
-                                   uint *output)                    // output pointer
-    {
-        // All streams in the block will align themselves on the first stream of the block
-        int misaligned0 = offset0 & 31;
-        int misaligned = offset & 31;
-        int off_smin = threadIdx.y * maxpad32;
-        int off_smout = ((int)(offset - offset0) + misaligned0) / 32;
-        offset0 /= 32;
+  const uint words_per_slot = count_up(bits_per_slot, 32);
+  const size_t shmem = (2 * num_tiles * words_per_slot + 2) * sizeof(uint32);
 
-        if (valid_stream)
-        {
-            // Loop on the whole bitstream (including misalignment), 32 bits per thread
-            for (int i = threadIdx.x; i * 32 < misaligned + length_bits; i += tile_size)
-            {
-                // Merge 2 values to create an aligned value
-                uint v0 = i > 0 ? sm_in[off_smin + i - 1] : 0;
-                uint v1 = sm_in[off_smin + i];
-                v1 = __funnelshift_l(v0, v1, misaligned);
+  // compute number of blocks to process concurrently
+  int thread_blocks = 0;
+  hipOccupancyMaxActiveBlocksPerMultiprocessor(
+    &thread_blocks,
+    compact_stream_kernel<tile_size, num_tiles>,
+    tile_size * num_tiles,
+    shmem
+  );
+  thread_blocks *= processors;
+  thread_blocks = min(thread_blocks, (int)count_up(blocks_per_chunk, num_tiles));
 
-                // Mask out neighbor bitstreams
-                uint mask = 0xffffffff;
-                if (i == 0)
-                    mask &= 0xffffffff << misaligned;
-                if ((i + 1) * 32 > misaligned + length_bits)
-                    mask &= ~(0xffffffff << ((misaligned + length_bits) & 31));
+  void* kernel_args[] = {
+    (void *)&d_stream,
+    (void *)&d_offset,
+    (void *)&first_block,
+    (void *)&blocks_per_chunk,
+    (void *)&bits_per_slot,
+    (void *)&words_per_slot
+  };
 
-                atomicAdd(sm_out + off_smout + i, v1 & mask);
-            }
-        }
+  return hipLaunchCooperativeKernel(
+    (void *)compact_stream_kernel<tile_size, num_tiles>,
+    dim3(thread_blocks, 1, 1),
+    dim3(tile_size, num_tiles, 1),
+    kernel_args,
+    shmem,
+    0
+  ) == hipSuccess;
+}
 
-        // First thread working on each bistream writes the length in shared memory
-        // Add zero-padding bits if needed (last bitstream of last chunk)
-        // The extra bits in shared mempory are already zeroed.
-        if (threadIdx.x == 0)
-            sm_length[threadIdx.y] = length_bits + add_padding;
+// compact a single chunk of blocks
+bool
+compact_stream_chunk(
+  uint32* d_stream,             // compressed bit stream
+  unsigned long long* d_offset, // global bit offsets to blocks in chunk
+  size_t first_block,           // index of first block in chunk
+  uint blocks_per_chunk,        // number of blocks per chunk
+  uint bits_per_slot,           // fixed-size slot size in bits
+  uint processors               // number of device multiprocessors
+)
+{
+  const uint bytes_per_slot = count_up(bits_per_slot, 32) * sizeof(uint32);
+  const size_t shared_memory = 48 * 1024 - 2 * sizeof(uint32);
 
-        // This synchthreads protects sm_out and sm_length.
-        __syncthreads();
+  // choose number of tiles such that shared memory usage is at most 48 KB
+  if (512 * 2 * bytes_per_slot <= shared_memory) // bits_per_slot <= 352
+    return compact_stream_launch< 1, 512>(d_stream, d_offset, first_block, blocks_per_chunk, bits_per_slot, processors);
+  if (128 * 2 * bytes_per_slot <= shared_memory) // bits_per_slot <= 1504
+    return compact_stream_launch< 4, 128>(d_stream, d_offset, first_block, blocks_per_chunk, bits_per_slot, processors);
+  if ( 32 * 2 * bytes_per_slot <= shared_memory) // bits_per_slot <= 6112
+    return compact_stream_launch<16,  32>(d_stream, d_offset, first_block, blocks_per_chunk, bits_per_slot, processors);
+  if (  8 * 2 * bytes_per_slot <= shared_memory) // bits_per_slot <= 24544
+    return compact_stream_launch<64,   8>(d_stream, d_offset, first_block, blocks_per_chunk, bits_per_slot, processors);
 
-        // Compute total length for the threadblock
-        uint total_length = 0;
-        for (int i = tid & 31; i < num_tiles; i += 32)
-            total_length += sm_length[i];
-        for (int i = 1; i < 32; i *= 2)
-            total_length += SHFL_XOR(total_length, i);
+  // zfp blocks are at most ZFP_MAX_BITS = 16658 bits < 2084 bytes;
+  // should never arrive here
 
-        // Write the shared memory output data to global memory, using all the threads
-        for (int i = tid; i * 32 < misaligned0 + total_length; i += tile_size * num_tiles)
-        {
-            // Mask out the beginning and end of the block if unaligned
-            uint mask = 0xffffffff;
-            if (i == 0)
-                mask &= 0xffffffff << misaligned0;
-            if ((i + 1) * 32 > misaligned0 + total_length)
-                mask &= ~(0xffffffff << ((misaligned0 + total_length) & 31));
-            // Reset the shared memory to zero for the next iteration.
-            uint value = sm_out[i];
-            sm_out[i] = 0;
-            // Write to global memory. Use atomicCAS for partially masked values
-            // Working in-place, the output buffer has not been memset to zero
-            if (mask == 0xffffffff)
-                output[offset0 + i] = value;
-            else
-            {
-                uint assumed, old = output[offset0 + i];
-                do
-                {
-                    assumed = old;
-                    old = atomicCAS(output + offset0 + i, assumed, (assumed & ~mask) + (value & mask));
-                } while (assumed != old);
-            }
-        }
-    }
+  return false;
+}
 
-    // In-place bitstream concatenation: compacting blocks containing different number
-    // of bits, with the input blocks stored in bins of the same size
-    // Using a 2D tile of threads,
-    // threadIdx.y = Index of the stream
-    // threadIdx.x = Threads working on the same stream
-    // Must launch dim3(tile_size, num_tiles, 1) threads per block.
-    // Offsets has a length of (nstreams_chunk + 1), offsets[0] is the offset in bits
-    // where stream 0 starts, it must be memset to zero before launching the very first chunk,
-    // and is updated at the end of this kernel.
-    template <int tile_size, int num_tiles>
-    __launch_bounds__(tile_size *num_tiles)
-        __global__ void concat_bitstreams_chunk(uint *__restrict__ streams,
-                                                unsigned long long *__restrict__ offsets,
-                                                unsigned long long first_stream_chunk,
-                                                int nstreams_chunk,
-                                                bool last_chunk,
-                                                int maxbits,
-                                                int maxpad32)
-    {
-        cg::grid_group grid = cg::this_grid();
-        __shared__ uint sm_length[num_tiles];
-        extern __shared__ uint sm_in[];              // sm_in[num_tiles * maxpad32]
-        uint *sm_out = sm_in + num_tiles * maxpad32; // sm_out[num_tiles * maxpad32 + 2]
-        int tid = threadIdx.y * tile_size + threadIdx.x;
-        int grid_stride = gridDim.x * num_tiles;
-        int first_bitstream_block = blockIdx.x * num_tiles;
-        int my_stream = first_bitstream_block + threadIdx.y;
+// zero-pad stream to align it on a whole word
+__global__
+void
+align_stream_kernel(
+  Word* d_stream,              // compacted, compressed stream
+  unsigned long long* d_offset // offset to end of stream
+)
+{
+  const size_t alignment = sizeof(Word) * CHAR_BIT;
+  const unsigned long long offset = *d_offset;
+  const uint shift = (uint)(offset % alignment);
 
-        // Zero the output shared memory. Will be reset again inside process().
-        for (int i = tid; i < num_tiles * maxpad32 + 2; i += tile_size * num_tiles)
-            sm_out[i] = 0;
+  if (shift) {
+    // mask out any nonzero bits at the end and advance offset
+    d_stream[offset / alignment] &= ~(~Word(0) << shift);
+    *d_offset = round_up(offset, alignment);
+  }
+}
 
-        // Loop on all the bitstreams of the current chunk, using the whole resident grid.
-        // All threads must enter this loop, as they have to synchronize inside.
-        for (int i = 0; i < nstreams_chunk; i += grid_stride)
-        {
-            bool valid_stream = my_stream + i < nstreams_chunk;
-            bool active_thread_block = first_bitstream_block + i < nstreams_chunk;
-            unsigned long long offset0 = 0;
-            unsigned long long offset = 0;
-            uint length_bits = 0;
-            uint add_padding = 0;
-            if (active_thread_block)
-                offset0 = offsets[first_bitstream_block + i];
+// compact in place variable-length blocks stored in fixed-length slots
+unsigned long long
+compact_stream(
+  Word* d_stream,         // pointer to compressed blocks
+  uint bits_per_slot,     // fixed size of slots holding variable-length blocks
+  const ushort* d_length, // lengths of zfp blocks in bits
+  size_t blocks,          // number of zfp blocks
+  size_t processors       // number of device multiprocessors
+)
+{
+  bool success = true;
+  unsigned long long* d_offset;
+  size_t chunk_size;
+  size_t cubtmp_size;
+  void* d_cubtmp;
 
-            if (valid_stream)
-            {
-                offset = offsets[my_stream + i];
-                unsigned long long offset_bits = (first_stream_chunk + my_stream + i) * maxbits;
-                unsigned long long next_offset_bits = offsets[my_stream + i + 1];
-                length_bits = (uint)(next_offset_bits - offset);
-                load_to_shared<tile_size>(streams, sm_in, offset_bits, length_bits, maxpad32);
-                if (last_chunk && (my_stream + i == nstreams_chunk - 1))
-                {
-                    uint partial = next_offset_bits & 63;
-                    add_padding = (64 - partial) & 63;
-                }
-            }
+  if (!setup_device_compact(&chunk_size, &d_offset, &cubtmp_size, &d_cubtmp, processors))
+    return 0;
 
-            // Check if there is overlap between input and output at the grid level.
-            // Grid sync if needed, otherwise just syncthreads to protect the shared memory.
-            // All the threads launched must participate in a grid::sync
-            int last_stream = min(nstreams_chunk, i + grid_stride);
-            unsigned long long writing_to = (offsets[last_stream] + 31) / 32;
-            unsigned long long reading_from = (first_stream_chunk + i) * maxbits;
-            if (writing_to >= reading_from)
-                grid.sync();
-            else
-                __syncthreads();
+  // perform compaction one chunk of blocks at a time
+  for (size_t block = 0; block < blocks && success; block += chunk_size) {
+    // determine chunk size
+    size_t blocks_per_chunk = min(chunk_size, blocks - block);
 
-            // Compact the shared memory data of the whole thread block and write it to global memory
-            if (active_thread_block)
-                process<tile_size, num_tiles>(valid_stream, offset0, offset, length_bits, add_padding,
-                                            tid, sm_in, sm_out, maxpad32, sm_length, streams);
-        }
+    // initialize block offsets to block lengths
+    copy_length_launch(d_offset, d_length + block, blocks_per_chunk);
 
-        // Reset the base of the offsets array, for the next chunk's prefix sum
-        if (blockIdx.x == 0 && tid == 0)
-            offsets[0] = offsets[nstreams_chunk];
-    }
+    // compute prefix sum to turn block lengths into offsets
+    hipcub::DeviceScan::InclusiveSum(d_cubtmp, cubtmp_size, d_offset, d_offset, blocks_per_chunk + 1);
 
-    void chunk_process_launch(uint *streams,
-                              unsigned long long *chunk_offsets,
-                              unsigned long long first,
-                              int nstream_chunk,
-                              bool last_chunk,
-                              int nbitsmax,
-                              int num_sm)
-    {
-        int maxpad32 = (nbitsmax + 31) / 32;
-        void *kernelArgs[] = {(void *)&streams,
-                              (void *)&chunk_offsets,
-                              (void *)&first,
-                              (void *)&nstream_chunk,
-                              (void *)&last_chunk,
-                              (void *)&nbitsmax,
-                              (void *)&maxpad32};
-        // Increase the number of threads per ZFP block ("tile") as nbitsmax increases
-        // Compromise between coalescing, inactive threads and shared memory size <= 48KB
-        // Total shared memory used = (2 * num_tiles * maxpad + 2) x 32-bit dynamic shared memory
-        // and num_tiles x 32-bit static shared memory.
-        // The extra 2 elements of dynamic shared memory are needed to handle unaligned output data
-        // and potential zero-padding to the next multiple of 64 bits.
-        // Block sizes set so that the shared memory stays < 48KB.
-        int max_blocks = 0;
-        if (nbitsmax <= 352)
-        {
-            constexpr int tile_size = 1;
-            constexpr int num_tiles = 512;
-            size_t shmem = (2 * num_tiles * maxpad32 + 2) * sizeof(uint);
-            hipOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks,
-                                                          concat_bitstreams_chunk<tile_size, num_tiles>,
-                                                          tile_size * num_tiles, shmem);
-            max_blocks *= num_sm;
-            max_blocks = min(nstream_chunk, max_blocks);
-            dim3 threads(tile_size, num_tiles, 1);
-            hipLaunchCooperativeKernel((void *)concat_bitstreams_chunk<tile_size, num_tiles>,
-                                        dim3(max_blocks, 1, 1), threads, kernelArgs, shmem, 0);
-        }
-        else if (nbitsmax <= 1504)
-        {
-            constexpr int tile_size = 4;
-            constexpr int num_tiles = 128;
-            size_t shmem = (2 * num_tiles * maxpad32 + 2) * sizeof(uint);
-            hipOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks,
-                                                          concat_bitstreams_chunk<tile_size, num_tiles>,
-                                                          tile_size * num_tiles, shmem);
-            max_blocks *= num_sm;
-            max_blocks = min(nstream_chunk, max_blocks);
-            dim3 threads(tile_size, num_tiles, 1);
-            hipLaunchCooperativeKernel((void *)concat_bitstreams_chunk<tile_size, num_tiles>,
-                                        dim3(max_blocks, 1, 1), threads, kernelArgs, shmem, 0);
-        }
-        else if (nbitsmax <= 6112)
-        {
-            constexpr int tile_size = 16;
-            constexpr int num_tiles = 32;
-            size_t shmem = (2 * num_tiles * maxpad32 + 2) * sizeof(uint);
-            hipOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks,
-                                                          concat_bitstreams_chunk<tile_size, num_tiles>,
-                                                          tile_size * num_tiles, shmem);
-            max_blocks *= num_sm;
-            max_blocks = min(nstream_chunk, max_blocks);
-            dim3 threads(tile_size, num_tiles, 1);
-            hipLaunchCooperativeKernel((void *)concat_bitstreams_chunk<tile_size, num_tiles>,
-                                        dim3(max_blocks, 1, 1), threads, kernelArgs, shmem, 0);
-        }
-        else // Up to 24512 bits, so works even for largest 4D.
-        {
-            constexpr int tile_size = 64;
-            constexpr int num_tiles = 8;
-            size_t shmem = (2 * num_tiles * maxpad32 + 2) * sizeof(uint);
-            hipOccupancyMaxActiveBlocksPerMultiprocessor(&max_blocks,
-                                                          concat_bitstreams_chunk<tile_size, num_tiles>,
-                                                          tile_size * num_tiles, shmem);
-            max_blocks *= num_sm;
-            max_blocks = min(nstream_chunk, max_blocks);
-            dim3 threads(tile_size, num_tiles, 1);
-            hipLaunchCooperativeKernel((void *)concat_bitstreams_chunk<tile_size, num_tiles>,
-                                        dim3(max_blocks, 1, 1), threads, kernelArgs, shmem, 0);
-        }
-    }
+    // compact the stream in place
+    if (!compact_stream_chunk((uint32*)d_stream, d_offset, block, blocks_per_chunk, bits_per_slot, processors))
+      success = false;
+  }
 
-    // *******************************************************************************
+  // update compressed size and pad to whole words
+  unsigned long long bits_written = 0;
+  if (success) {
+    align_stream_kernel<<<1, 1>>>(d_stream, d_offset);
+    hipMemcpy(&bits_written, d_offset, sizeof(bits_written), hipMemcpyDeviceToHost);
+  }
 
-    unsigned long long
-    compact_stream(
-      Word* d_stream,
-      uint maxbits,
-      ushort* d_index,
-      size_t blocks,
-      size_t processors
-    )
-    {
-      unsigned long long bits_written = 0;
-      unsigned long long *d_offsets;
-      size_t chunk_size;
-      size_t lcubtemp;
-      void *d_cubtemp;
+  // free temporary buffers
+  cleanup_device(d_offset);
+  cleanup_device(d_cubtmp);
 
-      if (internal::setup_device_compact(&chunk_size, &d_offsets, &lcubtemp, &d_cubtemp, processors)) {
-        // in-place compact variable-length blocks stored as fixed-length records
-        for (size_t i = 0; i < blocks; i += chunk_size) {
-          int cur_blocks = chunk_size;
-          bool last_chunk = false;
-          if (i + chunk_size > blocks) {
-            cur_blocks = (int)(blocks - i);
-            last_chunk = true;
-          }
-          // copy the 16-bit lengths in the offset array
-          copy_length_launch(d_index, d_offsets, i, cur_blocks);
-
-          // prefix sum to turn length into offsets
-          hipcub::DeviceScan::InclusiveSum(d_cubtemp, lcubtemp, d_offsets, d_offsets, cur_blocks + 1);
-
-          // compact the stream array in-place
-          chunk_process_launch((uint*)d_stream, d_offsets, i, cur_blocks, last_chunk, maxbits, processors);
-        }
-        // update compressed size and pad to whole words
-        hipMemcpy(&bits_written, d_offsets, sizeof(unsigned long long), hipMemcpyDeviceToHost);
-        bits_written = round_up(bits_written, sizeof(Word) * CHAR_BIT);
-
-        // free temporary buffers
-        internal::cleanup_device(NULL, d_offsets);
-        internal::cleanup_device(NULL, d_cubtemp);
-      }
-
-      return bits_written;
-    }
+  return bits_written;
+}
 
 } // namespace internal
 } // namespace hip

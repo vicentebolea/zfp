@@ -111,7 +111,7 @@ encode1(
 #endif
 
   // launch GPU kernel
-  hipLaunchKernelGGL(HIP_KERNEL_NAME(encode1_kernel<Scalar>), grid_size, block_size, 0, 0, 
+  encode1_kernel<Scalar><<<grid_size, block_size>>>(
     d_data,
     size[0],
     stride[0],

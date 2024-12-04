@@ -153,7 +153,7 @@ decode3(
 #endif
 
   // launch GPU kernel
-  hipLaunchKernelGGL(HIP_KERNEL_NAME(decode3_kernel<Scalar>), grid_size, block_size, 0, 0, 
+  decode3_kernel<Scalar><<<grid_size, block_size>>>(
     d_data,
     make_size3(size[0], size[1], size[2]),
     make_ptrdiff3(stride[0], stride[1], stride[2]),

@@ -132,7 +132,7 @@ decode1(
 #endif
 
   // launch GPU kernel
-  hipLaunchKernelGGL(HIP_KERNEL_NAME(decode1_kernel<Scalar>), grid_size, block_size, 0, 0, 
+  decode1_kernel<Scalar><<<grid_size, block_size>>>(
     d_data,
     size[0],
     stride[0],

@@ -126,7 +126,7 @@ encode2(
 #endif
 
   // launch GPU kernel
-  hipLaunchKernelGGL(HIP_KERNEL_NAME(encode2_kernel<Scalar>), grid_size, block_size, 0, 0, 
+  encode2_kernel<Scalar><<<grid_size, block_size>>>(
     d_data,
     make_size2(size[0], size[1]),
     make_ptrdiff2(stride[0], stride[1]),
