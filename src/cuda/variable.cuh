@@ -21,7 +21,7 @@ copy_length_kernel(
   uint blocks_per_chunk         // number of blocks in chunk to process
 )
 {
-  uint block = threadIdx.x + blockIdx.x * blockDim.x;
+  const uint block = threadIdx.x + blockIdx.x * blockDim.x;
   if (block < blocks_per_chunk)
     d_offset[block + 1] = d_length[block];
 }
@@ -34,7 +34,7 @@ copy_length_launch(
   uint blocks_per_chunk         // number of blocks in chunk to process
 )
 {
-  dim3 blocks((int)count_up(blocks_per_chunk, 1024), 1, 1);
+  const dim3 blocks((int)count_up(blocks_per_chunk, 1024), 1, 1);
   copy_length_kernel<<<blocks, 1024>>>(d_offset, d_length, blocks_per_chunk);
 }
 
@@ -134,12 +134,14 @@ store_subchunk(
     // fetch word and zero out for next subchunk
     uint32 word = sm_src[i];
     sm_src[i] = 0;
+
     // mask out the beginning and end of subchunk if unaligned
     uint32 mask = 0xffffffffu;
     if (i == 0)
       mask &= 0xffffffffu << begin;
     if ((i + 1) * 32 > end)
       mask &= ~(0xffffffffu << (end & 31u));
+
     // write masked bits of word to global memory; for partial-word
     // write, use XOR identities x ^ (x ^ y) = y (when mask is on) and
     // x ^ 0 = x (when mask is off) to select bits from x and y
@@ -216,16 +218,13 @@ compact_stream_kernel(
     // destination offset to beginning of subchunk in compacted stream
     const unsigned long long base_offset = active_thread_block ? d_offset[base_block] : 0;
 
-    unsigned long long offset_out = 0;
-    uint length = 0;
-
     if (valid_block) {
       // source offset within uncompacted stream
-      unsigned long long offset_in = (first_block + block) * bits_per_slot;
+      const unsigned long long offset_in = (first_block + block) * bits_per_slot;
       // destination offset within compacted stream
-      offset_out = d_offset[block];
+      const unsigned long long offset_out = d_offset[block];
       // bit length of this block
-      length = (uint)(d_offset[block + 1] - offset_out);
+      const uint length = (uint)(d_offset[block + 1] - offset_out);
       // buffer block in fixed-size slot in shared memory
       load_block<tile_size>(sm_in, words_per_slot, d_stream, offset_in, length);
       // compact subchunk by copying block to target location in shared memory
@@ -244,8 +243,8 @@ compact_stream_kernel(
 
     // copy compacted subchunk from shared memory to global memory
     if (active_thread_block) {
-      unsigned long long last_offset = d_offset[min(base_block + num_tiles, blocks_per_chunk)];
-      uint subchunk_length = (uint)(last_offset - base_offset);
+      const unsigned long long last_offset = d_offset[min(base_block + num_tiles, blocks_per_chunk)];
+      const uint subchunk_length = (uint)(last_offset - base_offset);
       // store compacted subchunk to global memory
       store_subchunk<tile_size, num_tiles>(d_stream, base_offset, subchunk_length, sm_out, tid);
     }
@@ -370,27 +369,26 @@ compact_stream(
 {
   bool success = true;
   unsigned long long* d_offset;
-  size_t chunk_size;
-  size_t cubtmp_size;
   void* d_cubtmp;
+  size_t blocks_per_chunk;
+  size_t cubtmp_size;
 
-  if (!setup_device_compact(&chunk_size, &d_offset, &cubtmp_size, &d_cubtmp, processors))
+  if (!setup_device_compact(&blocks_per_chunk, &d_offset, &cubtmp_size, &d_cubtmp, processors))
     return 0;
 
   // perform compaction one chunk of blocks at a time
-  for (size_t block = 0; block < blocks && success; block += chunk_size) {
+  for (size_t block = 0; block < blocks && success; block += blocks_per_chunk) {
     // determine chunk size
-    size_t blocks_per_chunk = min(chunk_size, blocks - block);
+    size_t chunk_size = min(blocks_per_chunk, blocks - block);
 
     // initialize block offsets to block lengths
-    copy_length_launch(d_offset, d_length + block, blocks_per_chunk);
+    copy_length_launch(d_offset, d_length + block, chunk_size);
 
     // compute prefix sum to turn block lengths into offsets
-    cub::DeviceScan::InclusiveSum(d_cubtmp, cubtmp_size, d_offset, d_offset, blocks_per_chunk + 1);
+    cub::DeviceScan::InclusiveSum(d_cubtmp, cubtmp_size, d_offset, d_offset, chunk_size + 1);
 
     // compact the stream in place
-    if (!compact_stream_chunk((uint32*)d_stream, d_offset, block, blocks_per_chunk, bits_per_slot, processors))
-      success = false;
+    success = compact_stream_chunk((uint32*)d_stream, d_offset, block, chunk_size, bits_per_slot, processors);
   }
 
   // update compressed size and pad to whole words
