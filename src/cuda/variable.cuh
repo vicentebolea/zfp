@@ -107,26 +107,6 @@ copy_block(
   }
 }
 
-// atomically write masked bits of word to *ptr
-template <typename T>
-__device__
-inline void
-atomic_deposit(T* ptr, T word, T mask)
-{
-  if (~mask) {
-    // deposit partial word using atomic compare-and-set
-    T old = *ptr;
-    T expected;
-    do {
-      T value = (word & mask) + (old & ~mask);
-      expected = old;
-      old = atomicCAS(ptr, expected, value);
-    } while (old != expected);
-  }
-  else
-    *ptr = word;
-}
-
 // copy one subchunk of num_tiles blocks from shared to global memory
 template <int tile_size, int num_tiles>
 __device__
@@ -160,8 +140,13 @@ store_subchunk(
       mask &= 0xffffffffu << begin;
     if ((i + 1) * 32 > end)
       mask &= ~(0xffffffffu << (end & 31u));
-    // write (possibly partial) word to global memory
-    atomic_deposit(d_stream + i, word, mask);
+    // write masked bits of word to global memory; for partial-word
+    // write, use XOR identities x ^ (x ^ y) = y (when mask is on) and
+    // x ^ 0 = x (when mask is off) to select bits from x and y
+    if (~mask)
+      atomicXor(&d_stream[i], (d_stream[i] ^ word) & mask);
+    else
+      d_stream[i] = word;
   }
 }
 
