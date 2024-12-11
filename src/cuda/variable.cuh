@@ -39,7 +39,7 @@ copy_length_launch(
 }
 
 // load a single unaligned block to a 32-bit aligned slot in shared memory
-template <uint threads>
+template <int tile_size>
 __device__
 inline void
 load_block(
@@ -50,8 +50,8 @@ load_block(
   uint length                // block length in bits
 )
 {
-  // block start within first 32-bit word
-  const uint shift = (uint)offset & 31u;
+  const uint begin = (uint)offset & 31u; // block start within 32-bit word
+  const uint end = begin + length;       // block end relative bit offset
 
   // advance stream to beginning 32-bit word of block
   d_stream += offset / 32;
@@ -60,18 +60,18 @@ load_block(
   sm_stream += threadIdx.y * words_per_slot;
 
   // copy compressed data for one block one 32-bit word at a time
-  for (uint i = threadIdx.x; i * 32 < length; i += threads) {
+  for (uint i = threadIdx.x; i * 32 < length; i += tile_size) {
     // fetch two consecutive words and funnel shift them to one output word
     uint32 lo = d_stream[i];
     uint32 hi = 0;
-    if ((i + 1) * 32 < shift + length)
+    if ((i + 1) * 32 < end)
       hi = d_stream[i + 1];
-    sm_stream[i] = __funnelshift_r(lo, hi, shift);
+    sm_stream[i] = __funnelshift_r(lo, hi, begin);
   }
 }
 
 // copy a single block from its 32-bit aligned slot to its compacted location
-template <uint threads>
+template <int tile_size>
 __device__
 inline void
 copy_block(
@@ -83,27 +83,24 @@ copy_block(
   uint words_per_slot             // slot size in number of 32-bit words
 )
 {
-  // in-word offset to first block in chunk
-  const uint base_shift = (uint)base_offset & 31u;
-
-  // block start within first 32-bit word
-  const uint shift = (uint)offset & 31u;
+  const uint begin = (uint)offset & 31u; // block start within 32-bit word
+  const uint end = begin + length;       // block end relative bit offset
 
   // advance shared-memory pointer to block source data
   sm_in += threadIdx.y * words_per_slot;
 
   // advance pointer to block destination data
-  sm_out += (offset - base_offset + base_shift) / 32;
+  sm_out += offset / 32 - base_offset / 32;
 
-  for (uint i = threadIdx.x; i * 32 < shift + length; i += threads) {
+  for (uint i = threadIdx.x; i * 32 < end; i += tile_size) {
     // fetch two consecutive words and funnel shift them to one output word
     uint32 lo = i > 0 ? sm_in[i - 1] : 0;
     uint32 hi = sm_in[i];
-    uint32 word = __funnelshift_l(lo, hi, shift);
+    uint32 word = __funnelshift_l(lo, hi, begin);
 
     // mask out bits from next block
-    if ((i + 1) * 32 > shift + length)
-      word &= ~(0xffffffffu << ((shift + length) & 31u));
+    if ((i + 1) * 32 > end)
+      word &= ~(0xffffffffu << (end & 31u));
 
     // store (partial) word in a thread-safe manner
     atomicAdd(sm_out + i, word);
@@ -117,12 +114,12 @@ inline void
 atomic_deposit(T* ptr, T word, T mask)
 {
   if (~mask) {
-    // deposit partial word using atomicCAS
-    T expected;
+    // deposit partial word using atomic compare-and-set
     T old = *ptr;
+    T expected;
     do {
+      T value = (word & mask) + (old & ~mask);
       expected = old;
-      T value = (word & mask) + (expected & ~mask);
       old = atomicCAS(ptr, expected, value);
     } while (old != expected);
   }
@@ -146,8 +143,8 @@ store_subchunk(
   // memory using coalesced writes.  Use atomic only for the first and last
   // word of the subchunk.
 
-  const uint begin = offset & 31u;
-  const uint end = begin + length;
+  const uint begin = offset & 31u; // block start within 32-bit word
+  const uint end = begin + length; // block end relative bit offset
 
   // advance output pointer to first word of subchunk
   d_stream += offset / 32;
