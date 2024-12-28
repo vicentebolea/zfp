@@ -31,5 +31,9 @@ CMakeLists.txt: ../cuda/CMakeLists.txt
 	@echo "$< -> $@"
 	@hipify-perl $< | sed $(SUBSTITUTIONS) > $@
 
+status:
+	@echo "Outdated targets:"
+	@$(MAKE) -n | sed '/->/!d;s/echo //' | sort
+
 clean:
 	rm -f $(TARGETS)
