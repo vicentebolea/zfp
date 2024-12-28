@@ -41,3 +41,4 @@
 .. |cpprelease| replace:: 1.0.0
 .. |verrelease| replace:: 1.0.0
 .. |vrdecrelease| replace:: 1.1.0
+.. |hiprelease| replace:: 1.1.0

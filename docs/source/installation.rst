@@ -241,16 +241,56 @@ in the same manner that :ref:`build targets <targets>` are specified, e.g.,
 
 .. c:macro:: ZFP_WITH_CUDA
 
-  CMake macro for enabling or disabling CUDA support for
-  GPU compression and decompression.  When enabled, CUDA and a compatible
-  host compiler must be installed.  For a full list of compatible compilers,
+  CMake macro for enabling or disabling CUDA support for GPU compression and
+  decompression.  When enabled, CUDA 11.0 or later and a compatible host
+  compiler must be installed.  For a full list of compatible compilers,
   please consult the
   `NVIDIA documentation <https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/>`__.
-  If a CUDA installation is in the user's path, it will be
-  automatically found by CMake.  Alternatively, the CUDA binary directory 
-  can be specified using the :envvar:`CUDA_BIN_DIR` environment variable.
+  If a CUDA installation is in the user's path, it will be automatically found
+  by CMake.  See also :c:macro:`CMAKE_CUDA_ARCHITECTURES`.
   CMake default: off.
   GNU make default: off and ignored.
+
+
+.. c:macro:: CMAKE_CUDA_ARCHITECTURES
+
+  `CMake macro <https://cmake.org/cmake/help/latest/variable/CMAKE_CUDA_ARCHITECTURES.html>`__
+  for optionally specifying which
+  `NVIDIA GPU architectures <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/>`__
+  to build for.  Use a semicolon separated list of architectures to override
+  the default, e.g., ``35;50;72`` generates code for compute capabilities
+  3.5, 5.0, and 7.2.  Set to ``all`` to build for all supported architectures.
+  CMake default: compiler specific.
+  GNU make default: ignored.
+
+.. note::
+  Setting ``CMAKE_CUDA_ARCHITECTURES=all`` makes it possible to use a single
+  binary across multiple architectures.  However, this option can significantly
+  increase the build time and size of ``libzfp``.
+
+
+.. c:macro:: ZFP_WITH_HIP
+
+  CMake macro for enabling or disabling HIP support for GPU compression and
+  decompression.  If a HIP installation is in the user's path, it will be
+  automatically found by CMake.  Alternatively, one may set the environment
+  variable :envvar:`HIP_PATH` to point to the HIP installation.  Some
+  platforms further require setting ``CMAKE_C_COMPILER=hipcc`` and
+  ``CMAKE_CXX_COMPILER=hipcc``.  See also :c:macro:`CMAKE_HIP_ARCHITECTURES`.
+  CMake default: off.
+  GNU make default: off and ignored.
+
+
+.. c:macro:: CMAKE_HIP_ARCHITECTURES
+
+  `CMake macro <https://cmake.org/cmake/help/latest/variable/CMAKE_HIP_ARCHITECTURES.html>`__
+  for optionally specifying which
+  `AMD GPU architectures <https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html>`__
+  to build for.  Use a semicolon separated list of architectures to override
+  the default, e.g., ``gfx900;gfx908``.
+  CMake default: compiler specific.
+  GNU make default: ignored.
+
 
 .. _rounding:
 .. c:macro:: ZFP_ROUNDING_MODE
@@ -279,6 +319,7 @@ in the same manner that :ref:`build targets <targets>` are specified, e.g.,
   :code:`serial` and :code:`omp` :ref:`execution policies <execution>`.
   Default: :code:`ZFP_ROUND_NEVER`.
 
+
 .. c:macro:: ZFP_WITH_TIGHT_ERROR
 
   **Experimental feature**.  When enabled, this feature takes advantage of the
@@ -292,6 +333,7 @@ in the same manner that :ref:`build targets <targets>` are specified, e.g.,
   only by the :code:`serial` and :code:`omp`
   :ref:`execution policies <execution>`.
   Default: undefined/off.
+
 
 .. c:macro:: ZFP_WITH_DAZ
 
@@ -311,6 +353,7 @@ in the same manner that :ref:`build targets <targets>` are specified, e.g.,
   :ref:`execution policies <execution>` other than :code:`serial` and
   :code:`omp`.
   Default: undefined/off.
+
 
 .. c:macro:: ZFP_WITH_ALIGNED_ALLOC
 
@@ -398,8 +441,8 @@ in the sections below.
 CMake
 ^^^^^
 
-CMake builds require version 3.9 or later.  CMake is available
-`here <https://cmake.org>`__.
+CPU-only CMake builds require version 3.9 or later; see below for GPU build
+requirements.  CMake is available `here <https://cmake.org>`__.
 
 OpenMP
 ^^^^^^
@@ -409,8 +452,14 @@ OpenMP support requires OpenMP 2.0 or later.
 CUDA
 ^^^^
 
-CUDA support requires CUDA 7.0 or later, CMake, and a compatible host
-compiler (see :c:macro:`ZFP_WITH_CUDA`).
+CUDA support requires CUDA 11.0 or later, CMake 3.23 or later, and a
+compatible host compiler (see :c:macro:`ZFP_WITH_CUDA`).
+
+HIP
+^^^
+
+HIP support requires ROCm 4.0 or later, CMake 3.21 or later, and a
+compatible host compiler (see :c:macro:`ZFP_WITH_HIP`).
 
 C/C++
 ^^^^^

@@ -7,11 +7,14 @@
 Parallel Execution
 ==================
 
-As of |zfp| |omprelease|, parallel compression (but not decompression) is
-supported on multicore processors via `OpenMP <http://www.openmp.org>`_
-threads.
+As of |zfp| |omprelease|, parallel compression is supported on multicore
+processors via `OpenMP <http://www.openmp.org>`_ threads.
 |zfp| |cudarelease| adds `CUDA <https://developer.nvidia.com/about-cuda>`_
 support for fixed-rate compression and decompression on the GPU.
+|zfp| |hiprelease| further adds support for
+`HIP <https://rocm.docs.amd.com/projects/HIP/en/latest/>`_
+and for fixed- and variable-rate parallel compression and decompression
+for all three back-ends (OpenMP, CUDA, and HIP).
 
 Since |zfp| partitions arrays into small independent blocks, a
 large amount of data parallelism is inherent in the compression scheme that
@@ -40,10 +43,10 @@ Execution Policies
 
 |zfp| supports multiple *execution policies*, which dictate how (e.g.,
 sequentially, in parallel) and where (e.g., on the CPU or GPU) arrays are
-compressed.  Currently three execution policies are available:
-``serial``, ``omp``, and ``cuda``.  The default mode is
+compressed.  Currently four execution policies are available:
+``serial``, ``omp``, ``cuda``, and ``hip``.  The default mode is
 ``serial``, which ensures sequential compression on a single thread.
-The ``omp`` and ``cuda`` execution policies allow for data-parallel
+The ``omp``, ``cuda``, and ``hip`` execution policies allow for data-parallel
 compression on multiple threads.
 
 The execution policy is set by :c:func:`zfp_stream_set_execution` and
@@ -62,7 +65,7 @@ Execution Parameters
 
 Each execution policy allows tailoring the execution via its associated
 *execution parameters*.  Examples include number of threads, chunk size,
-scheduling, etc.  The ``serial`` and ``cuda`` policies have no
+scheduling, etc.  The ``serial``, ``cuda``, and ``hip`` policies have no
 parameters.  The subsections below discuss the ``omp`` parameters.
 
 Whenever the execution policy is changed via
@@ -216,6 +219,18 @@ The CUDA implementation has a number of limitations:
 We expect to address these limitations over time.
 
 
+Using HIP
+---------
+
+Support for HIP is available as of |zfp| |hiprelease|, allowing |zfp| to be
+run in parallel on AMD GPUs.  To enable support, |zfp| the
+:c:macro:`ZFP_WITH_HIP` macro must be set and |zfp| must be built with CMake.
+See :c:macro:`ZFP_WITH_HIP` for further details.
+
+The HIP implementation is based off the CUDA implementation, and therefore
+the same :ref:`limitations <cuda-limitations>` apply.
+
+
 Setting the Execution Policy
 ----------------------------
 
@@ -230,9 +245,10 @@ calling :c:func:`zfp_stream_set_execution`
     }
 
 before calling :c:func:`zfp_compress`.  Replacing :code:`zfp_exec_omp`
-with :code:`zfp_exec_cuda` enables CUDA execution.  If OpenMP or CUDA is
-disabled or not supported, then the return value of functions setting these
-execution policies and parameters will indicate failure.  Execution
+with :code:`zfp_exec_cuda` enables CUDA execution.  Similarly,
+:code:`zfp_exec_hip` enables HIP execution.  If the corresponding execution
+policy is disabled or not supported, then the return value of functions
+setting these policies and parameters will indicate failure.  Execution
 parameters are optional and may be set using the functions discussed above.
 
 The source code for the |zfpcmd| command-line tool includes further examples
@@ -241,39 +257,42 @@ decompression in this tool, see the :option:`-x` command-line option.
 
 .. note::
   As of |zfp| |cudarelease|, the execution policy refers to both
-  compression and decompression.  The OpenMP implementation does not
-  yet support decompression, and hence :c:func:`zfp_decompress` will
-  fail if the execution policy is not reset to :code:`zfp_exec_serial`
-  before calling the decompressor.  Similarly, the CUDA implementation
-  supports only fixed-rate mode and will fail if other compression modes
-  are specified.
+  compression and decompression.
+
+.. note::
+  As of |zfp| |vrdecrelease|, variable-rate compression modes are supported
+  for all execution policies, both for compression and decompression.
+  However, for parallel decompression, a block index must be provided that
+  encodes where in the compressed stream each block resides.  See the section
+  on :ref:`parallel decompression <parallel-decompression>` for further
+  details.
 
 The following table summarizes which execution policies are supported
 with which :ref:`compression modes <modes>`:
 
-  +---------------------------------+---------+---------+---------+
-  | (de)compression mode            | serial  | OpenMP  | CUDA    |
-  +===============+=================+=========+=========+=========+
-  |               | expert          | |check| | |check| |         |
-  |               +-----------------+---------+---------+---------+
-  |               | fixed rate      | |check| | |check| | |check| |
-  |               +-----------------+---------+---------+---------+
-  | compression   | fixed precision | |check| | |check| |         |
-  |               +-----------------+---------+---------+---------+
-  |               | fixed accuracy  | |check| | |check| |         |
-  |               +-----------------+---------+---------+---------+
-  |               | reversible      | |check| | |check| |         |
-  +---------------+-----------------+---------+---------+---------+
-  |               | expert          | |check| | |check| |         |
-  |               +-----------------+---------+---------+---------+
-  |               | fixed rate      | |check| | |check| | |check| |
-  |               +-----------------+---------+---------+---------+
-  | decompression | fixed precision | |check| | |check| | |check| |
-  |               +-----------------+---------+---------+---------+
-  |               | fixed accuracy  | |check| | |check| | |check| |
-  |               +-----------------+---------+---------+---------+
-  |               | reversible      | |check| | |check| |         |
-  +---------------+-----------------+---------+---------+---------+
+  +---------------------------------+---------+---------+---------+---------+
+  | (de)compression mode            | serial  | OpenMP  | CUDA    | HIP     |
+  +===============+=================+=========+=========+=========+=========+
+  |               | expert          | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | fixed rate      | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  | compression   | fixed precision | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | fixed accuracy  | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | reversible      | |check| | |check| |         |         |
+  +---------------+-----------------+---------+---------+---------+---------+
+  |               | expert          | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | fixed rate      | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  | decompression | fixed precision | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | fixed accuracy  | |check| | |check| | |check| | |check| |
+  |               +-----------------+---------+---------+---------+---------+
+  |               | reversible      | |check| | |check| |         |         |
+  +---------------+-----------------+---------+---------+---------+---------+
 
 :c:func:`zfp_compress` and :c:func:`zfp_decompress` both return zero if the
 current execution policy is not supported for the requested compression
@@ -289,6 +308,8 @@ function in turn inspects the execution policy given by the
 :c:type:`zfp_stream` argument and dispatches the appropriate function
 for executing compression.
 
+
+.. _parallel-decompression:
 
 Parallel Decompression
 ----------------------

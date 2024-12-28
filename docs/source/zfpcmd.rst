@@ -232,7 +232,8 @@ Execution parameters
   :code:`-x omp=threads,chunk_size` to specify the chunk size in number
   of blocks (see also :c:func:`zfp_stream_set_omp_chunk_size`).  A
   chunk size of zero is ignored and results in the default size.
-  Use :code:`-x cuda` to for parallel CUDA compression and decompression.
+  Use :code:`-x cuda` or :code:`-x hip` for parallel CUDA or HIP
+  compression and decompression, respectively.
 
 As of |cudarelease|, the execution policy applies to both compression
 and decompression.  If the execution policy is not supported for
@@ -245,9 +246,9 @@ Block Index
 ^^^^^^^^^^^
 
 A block index is needed to support variable-rate decompression using any
-of the parallel execution policies (OpenMP and CUDA).  This index must be
-captured and stored to file during compression and later accessed prior to
-decompression.
+of the parallel execution policies (OpenMP, CUDA, and HIP).  This index
+must be captured and stored to file during compression and later accessed
+prior to decompression.
 
 .. option:: -m <path>
 
@@ -258,8 +259,8 @@ decompression.
 
   Block index type ("offset" or "hybrid") and granularity in number of blocks
   per index entry.  A granularity of one provides the highest flexibility and
-  performance potential (especially for CUDA) but also the highest storage
-  cost.
+  performance potential (especially for CUDA and HIP) but also the highest
+  storage cost.
 
 See the :ref:`hl-func-index` section for further details.
 
