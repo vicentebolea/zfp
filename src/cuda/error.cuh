@@ -15,7 +15,7 @@ public:
     error = cudaGetLastError();
     if (error != cudaSuccess) {
 #ifdef ZFP_DEBUG
-      std::cerr << "zfp_cuda : " << msg << " : " << cudaGetErrorString(error) << std::endl;
+      std::cerr << "zfp::cuda : " << msg << " : " << cudaGetErrorString(error) << std::endl;
 #endif
       return false;
     }

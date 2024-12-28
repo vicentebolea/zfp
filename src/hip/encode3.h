@@ -7,7 +7,7 @@ namespace hip {
 namespace internal {
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void gather3(Scalar* q, const Scalar* p, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t sz)
 {
   for (uint z = 0; z < 4; z++, p += sz - 4 * sy)
@@ -17,7 +17,7 @@ void gather3(Scalar* q, const Scalar* p, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t s
 }
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void gather_partial3(Scalar* q, const Scalar* p, uint nx, uint ny, uint nz, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t sz)
 {
   for (uint z = 0; z < 4; z++)

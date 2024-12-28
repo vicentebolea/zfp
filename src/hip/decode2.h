@@ -7,7 +7,7 @@ namespace hip {
 namespace internal {
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void scatter2(const Scalar* q, Scalar* p, ptrdiff_t sx, ptrdiff_t sy)
 {
   for (uint y = 0; y < 4; y++, p += sy - 4 * sx)
@@ -16,7 +16,7 @@ void scatter2(const Scalar* q, Scalar* p, ptrdiff_t sx, ptrdiff_t sy)
 }
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void scatter_partial2(const Scalar* q, Scalar* p, uint nx, uint ny, ptrdiff_t sx, ptrdiff_t sy)
 {
   for (uint y = 0; y < 4; y++)

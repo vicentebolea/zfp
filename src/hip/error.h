@@ -15,7 +15,7 @@ public:
     error = hipGetLastError();
     if (error != hipSuccess) {
 #ifdef ZFP_DEBUG
-      std::cerr << "zfp_hip : " << msg << " : " << hipGetErrorString(error) << std::endl;
+      std::cerr << "zfp::hip : " << msg << " : " << hipGetErrorString(error) << std::endl;
 #endif
       return false;
     }

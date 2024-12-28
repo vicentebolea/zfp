@@ -6,7 +6,7 @@ namespace cuda {
 namespace internal {
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void scatter3(const Scalar* q, Scalar* p, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t sz)
 {
   for (uint z = 0; z < 4; z++, p += sz - 4 * sy)
@@ -16,7 +16,7 @@ void scatter3(const Scalar* q, Scalar* p, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t 
 }
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void scatter_partial3(const Scalar* q, Scalar* p, uint nx, uint ny, uint nz, ptrdiff_t sx, ptrdiff_t sy, ptrdiff_t sz)
 {
   for (uint z = 0; z < 4; z++)

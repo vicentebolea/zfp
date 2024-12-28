@@ -6,7 +6,7 @@ namespace cuda {
 namespace internal {
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void gather1(Scalar* q, const Scalar* p, ptrdiff_t sx)
 {
   for (uint x = 0; x < 4; x++, p += sx)
@@ -14,7 +14,7 @@ void gather1(Scalar* q, const Scalar* p, ptrdiff_t sx)
 }
 
 template <typename Scalar>
-inline __device__ __host__
+inline __device__
 void gather_partial1(Scalar* q, const Scalar* p, uint nx, ptrdiff_t sx)
 {
   for (uint x = 0; x < 4; x++)
