@@ -217,18 +217,23 @@ compact_stream_kernel(
     const bool valid_block = (block < blocks_per_chunk);
     // destination offset to beginning of subchunk in compacted stream
     const unsigned long long base_offset = active_thread_block ? d_offset[base_block] : 0;
+    // destination offset within compacted stream
+    const unsigned long long offset_out = d_offset[block];
+    // bit length of this block
+    const uint length = (uint)(d_offset[block + 1] - offset_out);
 
     if (valid_block) {
       // source offset within uncompacted stream
       const unsigned long long offset_in = (first_block + block) * bits_per_slot;
-      // destination offset within compacted stream
-      const unsigned long long offset_out = d_offset[block];
-      // bit length of this block
-      const uint length = (uint)(d_offset[block + 1] - offset_out);
       // buffer block in fixed-size slot in shared memory
       load_block<tile_size>(sm_in, words_per_slot, d_stream, offset_in, length);
+    }
+
+    // synchronize to ensure entire subchunk is loaded
+    __syncthreads();
+
+    if (valid_block) {
       // compact subchunk by copying block to target location in shared memory
-      __syncthreads();
       copy_block<tile_size>(sm_out, base_offset, offset_out, length, sm_in, words_per_slot);
     }
 
