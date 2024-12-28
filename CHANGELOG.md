@@ -11,6 +11,8 @@ Change Log
 
 ### Fixed
 
+- #178: Bump CMake version to make use of `CMAKE_{CUDA,HIP}_ARCHITECTURES`.
+- #232: Bump CMake version to make use of `FindCUDAToolkit`.
 - #241: Signed left shifts, integer overflow invoke undefined behavior.
 
 ---

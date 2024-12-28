@@ -1,24 +1,4 @@
-if(ZFP_WITH_OPENMP)
-  add_definitions(-DZFP_WITH_OPENMP)
-endif()
-
-if(ZFP_WITH_CUDA)
-  set(CMAKE_CXX_FLAGS_PREVIOUS ${CMAKE_CXX_FLAGS})
-  set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -fPIC" )
-
-  add_subdirectory(cuda)
-  cuda_include_directories(${PROJECT_SOURCE_DIR}/include)
-  cuda_wrap_srcs(zfp OBJ zfp_cuda_backend_obj cuda/interface.cu OPTIONS ${CMAKE_CUDA_FLAGS})
-  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_PREVIOUS})
-  add_definitions(-DZFP_WITH_CUDA)
-endif()
-
-if(ZFP_WITH_HIP)
-  add_definitions(-DZFP_WITH_HIP)
-  set(ZFP_HIP_SOURCE hip/interface.cpp)
-  set_source_files_properties(${ZFP_HIP_SOURCE} PROPERTIES LANGUAGE HIP)
-endif()
-
+# required source files
 set(zfp_source
   zfp.c
   bitstream.c
@@ -30,19 +10,10 @@ set(zfp_source
   decode3f.c decode3d.c decode3i.c decode3l.c
   encode4f.c encode4d.c encode4i.c encode4l.c
   decode4f.c decode4d.c decode4i.c decode4l.c
-  ${ZFP_HIP_SOURCE})
+)
 
-if(ZFP_WITH_CUDA)
-  add_library(zfp ${zfp_source}
-                  ${zfp_cuda_backend_obj})
-else()
-  add_library(zfp ${zfp_source})
-endif()
+add_library(zfp ${zfp_source})
 add_library(zfp::zfp ALIAS zfp)
-
-if(ZFP_WITH_OPENMP)
-  target_link_libraries(zfp PRIVATE OpenMP::OpenMP_C)
-endif()
 
 if(HAVE_LIBM_MATH)
   target_link_libraries(zfp PRIVATE m)
@@ -54,12 +25,24 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   list(APPEND zfp_private_defs ZFP_SOURCE)
 endif()
 
+if(ZFP_WITH_OPENMP)
+  target_compile_definitions(zfp PUBLIC -DZFP_WITH_OPENMP)
+  target_link_libraries(zfp PRIVATE OpenMP::OpenMP_C)
+endif()
+
 if(ZFP_WITH_CUDA)
-  target_link_libraries(zfp PRIVATE ${CUDA_CUDART_LIBRARY} stdc++)
+  add_subdirectory(cuda)
+  target_sources(zfp PRIVATE cuda/interface.cu)
+  target_compile_definitions(zfp PUBLIC -DZFP_WITH_CUDA)
+  target_link_libraries(zfp PRIVATE CUDA::cudart stdc++)
+  set_property(TARGET zfp PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
 if(ZFP_WITH_HIP)
-  find_package(hip REQUIRED)
+  add_subdirectory(hip)
+  target_sources(zfp PRIVATE hip/interface.cpp)
+  set_source_files_properties(hip/interface.cpp PROPERTIES LANGUAGE HIP)
+  target_compile_definitions(zfp PUBLIC -DZFP_WITH_HIP)
   target_link_libraries(zfp PRIVATE hip::device)
 endif()
 
@@ -81,4 +64,5 @@ set_property(TARGET zfp PROPERTY OUTPUT_NAME ${ZFP_LIBRARY_PREFIX}zfp)
 install(TARGETS zfp EXPORT zfp-targets
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)

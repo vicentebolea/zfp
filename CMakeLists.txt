@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.9)
+
+if(ZFP_WITH_CUDA)
+  # 3.18 CMAKE_CUDA_ARCHITECTURES
+  # 3.20 FindCUDAToolkit
+  # 3.23 CMAKE_CUDA_ARCHITECTURES=all
+  cmake_minimum_required(VERSION 3.23)
+endif()
+
 if(ZFP_WITH_HIP)
+  # 3.21 enable_language(HIP)
   cmake_minimum_required(VERSION 3.21)
 endif()
 
@@ -87,6 +96,9 @@ message(STATUS "Compiling with C standard: ${CMAKE_C_STANDARD}")
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 98)
 endif()
+if(ZFP_WITH_CUDA)
+  set(CMAKE_CXX_STANDARD 11)
+endif()
 if(ZFP_WITH_HIP)
   set(CMAKE_CXX_STANDARD 14)
 endif()
@@ -120,7 +132,7 @@ cmake_dependent_option(ZFP_ENABLE_PIC
   "SHARED_LIBS_SUPPORTED" OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ${ZFP_ENABLE_PIC})
 
-# Compile-time options.
+# Compile-time options
 
 set(ZFP_BIT_STREAM_WORD_SIZE 64 CACHE STRING
   "Use smaller bit stream word type for finer rate granularity")
@@ -215,31 +227,19 @@ if(ZFP_WITH_OPENMP AND NOT OpenMP_C_LIBRARIES)
 endif()
 
 if(ZFP_WITH_CUDA)
-  # use CUDA_BIN_DIR hint
-  set(ENV{CUDA_BIN_PATH} ${CUDA_BIN_DIR})
-  find_package(CUDA)
-  if(NOT CUDA_FOUND)
-    message(FATAL_ERROR "ZFP_WITH_CUDA is enabled, but a CUDA installation was not found.")
-  endif()
-  if(${CUDA_VERSION_MAJOR} LESS 9)
-    message(FATAL_ERROR "zfp requires at least CUDA 9.0.")
-  endif()
-  if(${CUDA_VERSION_MAJOR} LESS 11)
-    # CUB is part of CUDA since CUDA 11
-    # Todo: get CUB from https://github.com/NVIDIA/cub.git
-    message(FATAL_ERROR "TODO: Install CUB for CUDA < 11")
-  endif()
-  set (CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} \
-                        -gencode arch=compute_60,code=compute_60 \
-                        -gencode arch=compute_70,code=compute_70 \
-                        -gencode arch=compute_80,code=compute_80")
+  enable_language(CUDA)
+  # Require CUDA 11.0 or later for CUB
+  find_package(CUDAToolkit 11 REQUIRED)
+  message(STATUS "Compiling for CUDA architecture(s): ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
 
 if(ZFP_WITH_HIP)
-  if (DEFINED ENV{HIP_PATH} AND NOT $ENV{HIP_PATH} STREQUAL "")
+  if(DEFINED ENV{HIP_PATH} AND NOT $ENV{HIP_PATH} STREQUAL "")
     set(HIP_PATH $ENV{HIP_PATH} CACHE PATH "Path to where HIP has been installed")
   endif()
   enable_language(HIP)
+  find_package(hip REQUIRED)
+  message(STATUS "Compiling for HIP architecture(s): ${CMAKE_HIP_ARCHITECTURES}")
 endif()
 
 if(NOT (ZFP_BIT_STREAM_WORD_SIZE EQUAL 64))
