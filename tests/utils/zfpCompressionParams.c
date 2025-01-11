@@ -16,5 +16,5 @@ computeFixedRateParam(int param)
 double
 computeFixedAccuracyParam(int param)
 {
-  return ldexp(1.0, -(1u << param));
+  return ldexp(1.0, -(1 << param));
 }

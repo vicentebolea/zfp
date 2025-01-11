@@ -114,7 +114,7 @@ TEST_F(ARRAY_DIMS_SCALAR_TEST_VIEWS, given_view_when_setEntryWithParens_then_ori
 {
   ZFP_ARRAY_TYPE::view v(&arr, offsetX, offsetY, offsetZ, offsetW, viewLenX, viewLenY, viewLenZ, viewLenW);
   size_t i = 1, j = 2, k = 1, l = 2;
-  SCALAR val = 3.14;
+  SCALAR val = SCALAR(3.14);
 
   EXPECT_NE(val, arr(offsetX + i, offsetY + j, offsetZ + k, offsetW + l));
   v(i, j, k, l) = val;

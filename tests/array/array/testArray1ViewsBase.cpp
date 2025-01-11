@@ -68,7 +68,7 @@ TEST_F(ARRAY_DIMS_SCALAR_TEST_VIEWS, given_view_when_setEntryWithBrackets_then_o
 {
   ZFP_ARRAY_TYPE::view v(&arr, offset, viewLen);
   size_t i = 1;
-  SCALAR val = 3.14;
+  SCALAR val = SCALAR(3.14);
 
   EXPECT_NE(val, arr(offset + i));
   v[i] = val;
@@ -98,7 +98,7 @@ TEST_F(ARRAY_DIMS_SCALAR_TEST_VIEWS, given_view_when_setEntryWithParens_then_ori
 {
   ZFP_ARRAY_TYPE::view v(&arr, offset, viewLen);
   size_t i = 1;
-  SCALAR val = 3.14;
+  SCALAR val = SCALAR(3.14);
 
   EXPECT_NE(val, arr(offset + i));
   v(i) = val;

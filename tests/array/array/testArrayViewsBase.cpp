@@ -417,7 +417,7 @@ TEST_F(ARRAY_DIMS_SCALAR_TEST_VIEWS, given_privateConstView_when_setCacheSize_th
 /* this also verifies underlying array is shallow copy */
 TEST_F(ARRAY_DIMS_SCALAR_TEST_VIEWS, given_privateConstViewWithDirtyCache_when_clearCache_then_entriesCleared)
 {
-  SCALAR val = 3.3;
+  SCALAR val = SCALAR(3.3);
   size_t i = 2;
   size_t arrOffset = i;
 

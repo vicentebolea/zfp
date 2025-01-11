@@ -34,7 +34,7 @@ class CArrayNdTestFixture : public ::testing::TestWithParam<testConfig> {
 protected:
   static double         getRate(int param)      { return std::ldexp(1.0, param + 3); }
   static unsigned int   getPrecision(int param) { return 1u << (param + 3); }
-  static double         getTolerance(int param) { return std::ldexp(1.0, -(1u << param)); }
+  static double         getTolerance(int param) { return std::ldexp(1.0, -(1 << param)); }
 
   // get(0): config mode selection
   // get(1): config mode value selection
