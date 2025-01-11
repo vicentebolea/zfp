@@ -77,8 +77,6 @@ if(MSVC)
 
   # Silence extraneous Visual Studio specific warnings
   add_definitions(-D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
-  add_compile_options(/wd4146)
-  add_compile_options(/wd4305)
 endif()
 
 # Suggest C99

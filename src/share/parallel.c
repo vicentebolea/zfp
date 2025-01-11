@@ -103,13 +103,13 @@ compress_finish_par(zfp_stream* stream, bitstream** src, size_t chunks)
 
 /* initialize per-thread bit streams for parallel decompression */
 static bitstream**
-decompress_init_par(zfp_stream* stream, uint chunks, uint blocks)
+decompress_init_par(zfp_stream* stream, size_t chunks, size_t blocks)
 {
   void* buffer = stream_data(stream->stream);
   const size_t size = stream_size(stream->stream);
   zfp_mode mode = zfp_stream_compression_mode(stream);
   bitstream** bs;
-  uint i;
+  size_t i;
 
   /* set up buffer for each thread to decompress from */
   bs = malloc(chunks * sizeof(bitstream*));
@@ -119,7 +119,7 @@ decompress_init_par(zfp_stream* stream, uint chunks, uint blocks)
   if (mode == zfp_mode_fixed_rate) {
     const size_t maxbits = stream->maxbits;
     for (i = 0; i < chunks; i++) {
-      size_t offset = chunk_offset(blocks, chunks, i) * maxbits;
+      bitstream_offset offset = (bitstream_offset)chunk_offset(blocks, chunks, i) * maxbits;
       bs[i] = stream_open(buffer, size);
       if (!bs[i]) {
         free(bs);
@@ -140,7 +140,7 @@ decompress_init_par(zfp_stream* stream, uint chunks, uint blocks)
           return NULL;
         }
         /* point bit stream to the beginning of the chunk */
-        stream_rseek(bs[i], (size_t)offset_table[i]);
+        stream_rseek(bs[i], (bitstream_offset)offset_table[i]);
       }
     }
     else {
@@ -153,13 +153,13 @@ decompress_init_par(zfp_stream* stream, uint chunks, uint blocks)
 }
 
 /* close all bit streams */
-static size_t
-decompress_finish_par(bitstream** bs, uint chunks)
+static bitstream_offset
+decompress_finish_par(bitstream** bs, size_t chunks)
 {
-  size_t max_offset = 0;
-  uint i;
+  bitstream_offset max_offset = 0;
+  size_t i;
   for (i = 0; i < chunks; i++) {
-    size_t offset = stream_rtell(bs[i]);
+    bitstream_offset offset = stream_rtell(bs[i]);
     if (max_offset < offset)
       max_offset = offset;
     stream_close(bs[i]);

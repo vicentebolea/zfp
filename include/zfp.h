@@ -39,7 +39,7 @@
 #define ZFP_DATA_ALL     0xffu /* all storage */
 
 /* field metadata indeterminate state and error code */
-#define ZFP_META_NULL (UINT64C(-1))
+#define ZFP_META_NULL (UINT64C(0) - 1)
 
 /* number of bits per header entry */
 #define ZFP_MAGIC_BITS       32 /* number of magic word bits */

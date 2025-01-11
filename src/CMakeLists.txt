@@ -34,7 +34,7 @@ if(ZFP_WITH_CUDA)
   add_subdirectory(cuda)
   target_sources(zfp PRIVATE cuda/interface.cu)
   target_compile_definitions(zfp PUBLIC -DZFP_WITH_CUDA)
-  target_link_libraries(zfp PRIVATE CUDA::cudart stdc++)
+  target_link_libraries(zfp PRIVATE CUDA::cudart)
   set_property(TARGET zfp PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 

@@ -457,11 +457,11 @@ zfp_field_blocks(const zfp_field* field)
 size_t
 zfp_field_num_blocks (const zfp_field* field)
 {
-  uint mx = (MAX(field->nx, 1u) + 3) / 4;
-  uint my = (MAX(field->ny, 1u) + 3) / 4;
-  uint mz = (MAX(field->nz, 1u) + 3) / 4;
-  uint mw = (MAX(field->nw, 1u) + 3) / 4;
-  size_t blocks = (size_t)mx * (size_t)my * (size_t)mz * (size_t)mw;
+  size_t mx = (MAX(field->nx, 1u) + 3) / 4;
+  size_t my = (MAX(field->ny, 1u) + 3) / 4;
+  size_t mz = (MAX(field->nz, 1u) + 3) / 4;
+  size_t mw = (MAX(field->nw, 1u) + 3) / 4;
+  size_t blocks = mx * my * mz * mw;
   return blocks;
 }
 

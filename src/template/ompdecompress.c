@@ -6,13 +6,13 @@ _t2(decompress_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
 {
   Scalar* data = (Scalar*)field->data;
   bitstream** bs;
-  const uint nx = field->nx;
-  const uint threads = thread_count_omp(stream);
-  const uint blocks = (nx + 3) / 4;
+  const size_t nx = field->nx;
+  const size_t threads = thread_count_omp(stream);
+  const size_t blocks = (nx + 3) / 4;
   const zfp_mode mode = zfp_stream_compression_mode(stream);
-  size_t max_offset;
-  uint granularity;
-  uint chunks;
+  bitstream_offset max_offset;
+  size_t granularity;
+  size_t chunks;
   int chunk;
 
   /* determine number of chunks */
@@ -37,9 +37,9 @@ _t2(decompress_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
   #pragma omp parallel for num_threads(threads)
   for (chunk = 0; chunk < (int)chunks; chunk++) {
     /* determine range of block indices assigned to this thread */
-    const uint bmin = chunk * granularity;
-    const uint bmax = MIN(bmin + granularity, blocks);
-    uint block;
+    const size_t bmin = chunk * granularity;
+    const size_t bmax = MIN(bmin + granularity, blocks);
+    size_t block;
     /* set up thread-local bit stream */
     zfp_stream s = *stream;
     zfp_stream_set_bit_stream(&s, bs[chunk]);
@@ -47,7 +47,7 @@ _t2(decompress_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
     for (block = bmin; block < bmax; block++) {
       /* determine block origin x within array */
       Scalar* p = data;
-      uint x = 4 * block;
+      size_t x = 4 * block;
       p += x;
       /* decompress partial or full block */
       if (nx - x < 4)
@@ -68,14 +68,14 @@ _t2(decompress_strided_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
 {
   Scalar* data = (Scalar*)field->data;
   bitstream** bs;
-  const uint nx = field->nx;
-  const int sx = field->sx ? field->sx : 1;
-  const uint threads = thread_count_omp(stream);
-  const uint blocks = (nx + 3) / 4;
+  const size_t nx = field->nx;
+  const ptrdiff_t sx = field->sx ? field->sx : 1;
+  const size_t threads = thread_count_omp(stream);
+  const size_t blocks = (nx + 3) / 4;
   const zfp_mode mode = zfp_stream_compression_mode(stream);
-  size_t max_offset;
-  uint granularity;
-  uint chunks;
+  bitstream_offset max_offset;
+  size_t granularity;
+  size_t chunks;
   int chunk;
 
   /* determine number of chunks */
@@ -100,9 +100,9 @@ _t2(decompress_strided_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
   #pragma omp parallel for num_threads(threads)
   for (chunk = 0; chunk < (int)chunks; chunk++) {
     /* determine range of block indices assigned to this thread */
-    const uint bmin = chunk * granularity;
-    const uint bmax = MIN(bmin + granularity, blocks);
-    uint block;
+    const size_t bmin = chunk * granularity;
+    const size_t bmax = MIN(bmin + granularity, blocks);
+    size_t block;
     /* set up thread-local bit stream */
     zfp_stream s = *stream;
     zfp_stream_set_bit_stream(&s, bs[chunk]);
@@ -110,7 +110,7 @@ _t2(decompress_strided_omp, Scalar, 1)(zfp_stream* stream, zfp_field* field)
     for (block = bmin; block < bmax; block++) {
       /* determine block origin x within array */
       Scalar* p = data;
-      uint x = 4 * block;
+      size_t x = 4 * block;
       p += sx * (ptrdiff_t)x;
       /* decompress partial or full block */
       if (nx - x < 4)
@@ -131,18 +131,18 @@ _t2(decompress_strided_omp, Scalar, 2)(zfp_stream* stream, zfp_field* field)
 {
   Scalar* data = (Scalar*)field->data;
   bitstream** bs;
-  const uint nx = field->nx;
-  const uint ny = field->ny;
-  const int sx = field->sx ? field->sx : 1;
-  const int sy = field->sy ? field->sy : (int)nx;
-  const uint threads = thread_count_omp(stream);
-  const uint bx = (nx + 3) / 4;
-  const uint by = (ny + 3) / 4;
-  const uint blocks = bx * by;
+  const size_t nx = field->nx;
+  const size_t ny = field->ny;
+  const ptrdiff_t sx = field->sx ? field->sx : 1;
+  const ptrdiff_t sy = field->sy ? field->sy : (ptrdiff_t)nx;
+  const size_t threads = thread_count_omp(stream);
+  const size_t bx = (nx + 3) / 4;
+  const size_t by = (ny + 3) / 4;
+  const size_t blocks = bx * by;
   const zfp_mode mode = zfp_stream_compression_mode(stream);
-  size_t max_offset;
-  uint granularity;
-  uint chunks;
+  bitstream_offset max_offset;
+  size_t granularity;
+  size_t chunks;
   int chunk;
 
   /* determine number of chunks */
@@ -167,9 +167,9 @@ _t2(decompress_strided_omp, Scalar, 2)(zfp_stream* stream, zfp_field* field)
   #pragma omp parallel for num_threads(threads)
   for (chunk = 0; chunk < (int)chunks; chunk++) {
     /* determine range of block indices assigned to this thread */
-    const uint bmin = chunk * granularity;
-    const uint bmax = MIN(bmin + granularity, blocks);
-    uint block;
+    const size_t bmin = chunk * granularity;
+    const size_t bmax = MIN(bmin + granularity, blocks);
+    size_t block;
     /* set up thread-local bit stream */
     zfp_stream s = *stream;
     zfp_stream_set_bit_stream(&s, bs[chunk]);
@@ -177,8 +177,8 @@ _t2(decompress_strided_omp, Scalar, 2)(zfp_stream* stream, zfp_field* field)
     for (block = bmin; block < bmax; block++) {
       /* determine block origin (x, y) within array */
       Scalar* p = data;
-      uint b = block;
-      uint x, y;
+      size_t b = block;
+      size_t x, y;
       x = 4 * (b % bx); b /= bx;
       y = 4 * b;
       p += sx * (ptrdiff_t)x + sy * (ptrdiff_t)y;
@@ -201,21 +201,21 @@ _t2(decompress_strided_omp, Scalar, 3)(zfp_stream* stream, zfp_field* field)
 {
   Scalar* data = (Scalar*)field->data;
   bitstream** bs;
-  const uint nx = field->nx;
-  const uint ny = field->ny;
-  const uint nz = field->nz;
-  const int sx = field->sx ? field->sx : 1;
-  const int sy = field->sy ? field->sy : (int)nx;
-  const int sz = field->sz ? field->sz : (int)(nx * ny);
-  const uint threads = thread_count_omp(stream);
-  const uint bx = (nx + 3) / 4;
-  const uint by = (ny + 3) / 4;
-  const uint bz = (nz + 3) / 4;
-  const uint blocks = bx * by * bz;
+  const size_t nx = field->nx;
+  const size_t ny = field->ny;
+  const size_t nz = field->nz;
+  const ptrdiff_t sx = field->sx ? field->sx : 1;
+  const ptrdiff_t sy = field->sy ? field->sy : (ptrdiff_t)nx;
+  const ptrdiff_t sz = field->sz ? field->sz : (ptrdiff_t)(nx * ny);
+  const size_t threads = thread_count_omp(stream);
+  const size_t bx = (nx + 3) / 4;
+  const size_t by = (ny + 3) / 4;
+  const size_t bz = (nz + 3) / 4;
+  const size_t blocks = bx * by * bz;
   const zfp_mode mode = zfp_stream_compression_mode(stream);
-  size_t max_offset;
-  uint granularity;
-  uint chunks;
+  bitstream_offset max_offset;
+  size_t granularity;
+  size_t chunks;
   int chunk;
 
   /* determine number of chunks */
@@ -240,9 +240,9 @@ _t2(decompress_strided_omp, Scalar, 3)(zfp_stream* stream, zfp_field* field)
   #pragma omp parallel for num_threads(threads)
   for (chunk = 0; chunk < (int)chunks; chunk++) {
     /* determine range of block indices assigned to this thread */
-    const uint bmin = chunk * granularity;
-    const uint bmax = MIN(bmin + granularity, blocks);
-    uint block;
+    const size_t bmin = chunk * granularity;
+    const size_t bmax = MIN(bmin + granularity, blocks);
+    size_t block;
     /* set up thread-local bit stream */
     zfp_stream s = *stream;
     zfp_stream_set_bit_stream(&s, bs[chunk]);
@@ -250,8 +250,8 @@ _t2(decompress_strided_omp, Scalar, 3)(zfp_stream* stream, zfp_field* field)
     for (block = bmin; block < bmax; block++) {
       /* determine block origin (x, y, z) within array */
       Scalar* p = data;
-      uint b = block;
-      uint x, y, z;
+      size_t b = block;
+      size_t x, y, z;
       x = 4 * (b % bx); b /= bx;
       y = 4 * (b % by); b /= by;
       z = 4 * b;
@@ -275,24 +275,24 @@ _t2(decompress_strided_omp, Scalar, 4)(zfp_stream* stream, zfp_field* field)
 {
   Scalar* data = (Scalar*)field->data;
   bitstream** bs;
-  const uint nx = field->nx;
-  const uint ny = field->ny;
-  const uint nz = field->nz;
-  const uint nw = field->nw;
-  const int sx = field->sx ? field->sx : 1;
-  const int sy = field->sy ? field->sy : (int)nx;
-  const int sz = field->sz ? field->sz : (int)(nx * ny);
-  const int sw = field->sw ? field->sw : (int)(nx * ny * nz);
-  const uint threads = thread_count_omp(stream);
-  const uint bx = (nx + 3) / 4;
-  const uint by = (ny + 3) / 4;
-  const uint bz = (nz + 3) / 4;
-  const uint bw = (nw + 3) / 4;
-  const uint blocks = bx * by * bz * bw;
+  const size_t nx = field->nx;
+  const size_t ny = field->ny;
+  const size_t nz = field->nz;
+  const size_t nw = field->nw;
+  const ptrdiff_t sx = field->sx ? field->sx : 1;
+  const ptrdiff_t sy = field->sy ? field->sy : (ptrdiff_t)nx;
+  const ptrdiff_t sz = field->sz ? field->sz : (ptrdiff_t)(nx * ny);
+  const ptrdiff_t sw = field->sw ? field->sw : (ptrdiff_t)(nx * ny * nz);
+  const size_t threads = thread_count_omp(stream);
+  const size_t bx = (nx + 3) / 4;
+  const size_t by = (ny + 3) / 4;
+  const size_t bz = (nz + 3) / 4;
+  const size_t bw = (nw + 3) / 4;
+  const size_t blocks = bx * by * bz * bw;
   const zfp_mode mode = zfp_stream_compression_mode(stream);
-  size_t max_offset;
-  uint granularity;
-  uint chunks;
+  bitstream_offset max_offset;
+  size_t granularity;
+  size_t chunks;
   int chunk;
 
   /* determine number of chunks */
@@ -317,9 +317,9 @@ _t2(decompress_strided_omp, Scalar, 4)(zfp_stream* stream, zfp_field* field)
   #pragma omp parallel for num_threads(threads)
   for (chunk = 0; chunk < (int)chunks; chunk++) {
     /* determine range of block indices assigned to this thread */
-    const uint bmin = chunk * granularity;
-    const uint bmax = MIN(bmin + granularity, blocks);
-    uint block;
+    const size_t bmin = chunk * granularity;
+    const size_t bmax = MIN(bmin + granularity, blocks);
+    size_t block;
     /* set up thread-local bit stream */
     zfp_stream s = *stream;
     zfp_stream_set_bit_stream(&s, bs[chunk]);
@@ -327,8 +327,8 @@ _t2(decompress_strided_omp, Scalar, 4)(zfp_stream* stream, zfp_field* field)
     for (block = bmin; block < bmax; block++) {
       /* determine block origin (x, y, z, w) within array */
       Scalar* p = data;
-      uint b = block;
-      uint x, y, z, w;
+      size_t b = block;
+      size_t x, y, z, w;
       x = 4 * (b % bx); b /= bx;
       y = 4 * (b % by); b /= by;
       z = 4 * (b % bz); b /= bz;

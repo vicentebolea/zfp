@@ -15,7 +15,7 @@
 
 // we need to know about bitstream, but we don't want duplicate symbols
 #ifndef inline_
-  #define inline_ inline
+  #define inline_ static inline
 #endif
 
 #include "zfp/bitstream.inl"

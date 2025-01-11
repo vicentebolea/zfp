@@ -231,14 +231,14 @@ protected:
   // bit offset to block store
   bitstream_offset offset(size_t block_index) const { return index.block_offset(block_index); }
 
-  // shape 0 <= m <= 3 of block containing index i, 0 <= i <= n - 1
+  // shape 0 <= m <= 3 of block of width w = 4 - m containing index i, 0 <= i <= n - 1
   static uint shape_code(size_t i, size_t n)
   {
     // handle partial blocks efficiently using no conditionals
     size_t m = i ^ n;               // m < 4 iff partial block
     m -= 4;                         // m < 0 iff partial block
-    m >>= CHAR_BIT * sizeof(m) - 2; // m = 3 iff partial block; otherwise m = 0
-    m &= -n;                        // m = 4 - w
+    m >>= sizeof(m) * CHAR_BIT - 2; // m = 3 iff partial block; otherwise m = 0
+    m &= 0 - n;                     // m = 4 - w
     return static_cast<uint>(m);
   }
 
