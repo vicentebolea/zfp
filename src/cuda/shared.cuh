@@ -4,21 +4,20 @@
 // report throughput; set via CMake
 // #define ZFP_WITH_CUDA_PROFILE 1
 
+// we need to know about bitstream, but we don't want duplicate symbols
+#ifndef inline_
+  #define inline_ static inline
+#endif
+#include "zfp/bitstream.inl"
+#include "zfp.h"
+
 #include <cmath>
 #include <cstdio>
-#include "zfp.h"
 #include "traits.cuh"
 #include "constants.cuh"
 #ifdef ZFP_WITH_CUDA_PROFILE
   #include "timer.cuh"
 #endif
-
-// we need to know about bitstream, but we don't want duplicate symbols
-#ifndef inline_
-  #define inline_ static inline
-#endif
-
-#include "zfp/bitstream.inl"
 
 // bit stream word/buffer type; granularity of stream I/O operations
 typedef unsigned long long Word;

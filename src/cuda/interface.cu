@@ -1,5 +1,4 @@
 #include <iostream>
-#include "interface.h"
 #include "../share/device.h"
 #include "shared.cuh"
 #include "error.cuh"
@@ -16,6 +15,7 @@
 #include "decode1.cuh"
 #include "decode2.cuh"
 #include "decode3.cuh"
+#include "interface.h"
 
 zfp_bool
 zfp_internal_cuda_init(zfp_exec_params_cuda* params)
